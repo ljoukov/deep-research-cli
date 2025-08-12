@@ -150,6 +150,54 @@ export class SessionLogger {
 		await fs.writeFile(filepath, content, 'utf8');
 	}
 
+	async logRequestFromUrlFetches(
+		urlFetchResults: Array<{url: string; content: string; metrics: any}>,
+	): Promise<void> {
+		const filename = `${this.formatFileNumber(this.interactionCount)}-request.md`;
+		const filepath = path.join(this.sessionDir, filename);
+		let content = '# Fetched Content\n\n';
+		urlFetchResults.forEach((result, index) => {
+			const fetchFile = `${this.formatFileNumber(this.interactionCount)}-tool-fetch_url-${index + 1}.md`;
+			content += `- [${result.url}](./${fetchFile})\n`;
+		});
+		await fs.writeFile(filepath, content, 'utf8');
+	}
+
+	async logToolCall(toolName: string, args: any): Promise<void> {
+		const filename = `${this.formatFileNumber(this.interactionCount)}-response.md`;
+		const filepath = path.join(this.sessionDir, filename);
+
+		let content = '';
+		if (toolName === 'fetch_urls') {
+			const urls: string[] = Array.isArray(args?.urls) ? args.urls : [];
+			content += `Tool Call: Fetch URLs\n\n`;
+			for (const url of urls) {
+				content += `- [${url}](${url})\n`;
+			}
+		} else {
+			content += `Tool Call: ${toolName}\n`;
+			// Render simple key/values without JSON blocks
+			if (args && typeof args === 'object') {
+				for (const [key, value] of Object.entries(args)) {
+					if (Array.isArray(value)) {
+						content += `- ${key}: ${value.join(', ')}\n`;
+					} else if (
+						typeof value === 'string' ||
+						typeof value === 'number' ||
+						typeof value === 'boolean'
+					) {
+						content += `- ${key}: ${value}\n`;
+					} else {
+						// Fallback stringify for complex values
+						content += `- ${key}: ${JSON.stringify(value)}\n`;
+					}
+				}
+			}
+		}
+
+		await fs.writeFile(filepath, content, 'utf8');
+	}
+
 	async logResponse(content: string, append: boolean = false): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-response.md`;
 		const filepath = path.join(this.sessionDir, filename);
@@ -192,7 +240,7 @@ export class SessionLogger {
 		metrics: UrlFetchMetrics,
 	): Promise<void> {
 		// Log individual URL result
-		const filename = `${this.formatFileNumber(this.interactionCount)}-request-url-fetch-${index}.md`;
+		const filename = `${this.formatFileNumber(this.interactionCount)}-tool-fetch_url-${index}.md`;
 		const filepath = path.join(this.sessionDir, filename);
 
 		let fileContent = `# URL Fetch Result ${index}\n\n`;
@@ -530,15 +578,7 @@ export class SessionLogger {
 				// File might not exist
 			}
 
-			// Include URL fetch details if any
-			if (interactionData && interactionData.urls > 0) {
-				content += `### URL Fetch Details\n\n`;
-				for (let j = 1; j <= interactionData.urls; j++) {
-					const urlFetchFile = `${interNum}-request-url-fetch-${j}.md`;
-					content += `- [${urlFetchFile}](./${urlFetchFile})\n`;
-				}
-				content += '\n';
-			}
+			// Include URL fetch details if any - This is now part of the request file for the second interaction
 		}
 
 		await fs.writeFile(filepath, content, 'utf8');

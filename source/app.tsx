@@ -300,6 +300,7 @@ export default function App({args, apiKey}: AppProps) {
 
 			let toolCallInProgress = false;
 			let reasoningLogged = false;
+			let toolResponseLogged = false;
 
 			const processEvent = async (event: ResponseStreamEvent) => {
 				// Update logger state based on event
@@ -340,9 +341,11 @@ export default function App({args, apiKey}: AppProps) {
 										.split(', ')
 										.filter(u => u && u !== '...');
 									if (requestedUrls.length > 0) {
-										await logger.logResponse(
-											`Tool call: fetch_urls\nArguments: ${JSON.stringify({urls: requestedUrls})}`,
-										);
+										// Log immediately as a fallback to ensure 00001-response.md exists
+										if (!toolResponseLogged) {
+											await logger.logToolCall('fetch_urls', {urls: requestedUrls});
+											toolResponseLogged = true;
+										}
 									}
 								}
 							}
@@ -353,6 +356,14 @@ export default function App({args, apiKey}: AppProps) {
 					case 'tool_continuation':
 						// This is the major change: handle the continuation
 						// 1. Finalize the first interaction (the tool request)
+						if (!toolResponseLogged) {
+							const urlsFromContinuation =
+								event.urlFetchResults?.map(r => r.url).filter(u => !!u) ?? [];
+							const urls = requestedUrls.length > 0 ? requestedUrls : urlsFromContinuation;
+							await logger.logToolCall('fetch_urls', {urls});
+							toolResponseLogged = true;
+						}
+
 						await logger.updateMetrics(event.usage, Date.now() - startTime);
 						await logger.logInteractionStats();
 
@@ -362,8 +373,8 @@ export default function App({args, apiKey}: AppProps) {
 						await logger.setCurrentState('fetching_urls');
 
 						// 3. Log the combined fetch result as the new "request"
-						if (event.toolResult) {
-							await logger.logRequest(event.toolResult);
+						if (event.urlFetchResults) {
+							await logger.logRequestFromUrlFetches(event.urlFetchResults);
 						}
 
 						// 4. Log individual URL fetch results
