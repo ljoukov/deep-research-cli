@@ -2,7 +2,6 @@ import {promises as fs} from 'node:fs';
 import * as path from 'node:path';
 import type {ResponseUsage} from 'openai/resources/responses/responses.js';
 import {modelPricing} from './pricing.js';
-import type {CliArgs} from '../types.js';
 
 export interface InteractionMetrics {
 	timestamp: Date;

@@ -81,7 +81,7 @@ export default function App({args, apiKey}: AppProps) {
 		};
 
 		// For synchronous exit event
-		process.on('beforeExit', (code) => {
+		process.on('beforeExit', code => {
 			if (code === 0) {
 				handleExit().then(() => process.exit(code));
 			}
@@ -306,7 +306,10 @@ export default function App({args, apiKey}: AppProps) {
 				// Update logger state based on event
 				switch (event.type) {
 					case 'thinking':
-						await logger.setCurrentState('thinking', 'Processing reasoning tokens');
+						await logger.setCurrentState(
+							'thinking',
+							'Processing reasoning tokens',
+						);
 						if (!reasoningLogged) {
 							await logger.logReasoning(event.delta ?? '', false);
 							reasoningLogged = true;
@@ -343,7 +346,9 @@ export default function App({args, apiKey}: AppProps) {
 									if (requestedUrls.length > 0) {
 										// Log immediately as a fallback to ensure 00001-response.md exists
 										if (!toolResponseLogged) {
-											await logger.logToolCall('fetch_urls', {urls: requestedUrls});
+											await logger.logToolCall('fetch_urls', {
+												urls: requestedUrls,
+											});
 											toolResponseLogged = true;
 										}
 									}
@@ -359,7 +364,8 @@ export default function App({args, apiKey}: AppProps) {
 						if (!toolResponseLogged) {
 							const urlsFromContinuation =
 								event.urlFetchResults?.map(r => r.url).filter(u => !!u) ?? [];
-							const urls = requestedUrls.length > 0 ? requestedUrls : urlsFromContinuation;
+							const urls =
+								requestedUrls.length > 0 ? requestedUrls : urlsFromContinuation;
 							await logger.logToolCall('fetch_urls', {urls});
 							toolResponseLogged = true;
 						}
@@ -379,10 +385,7 @@ export default function App({args, apiKey}: AppProps) {
 
 						// 4. Log individual URL fetch results
 						if (event.urlFetchResults) {
-							for (const [
-								index,
-								result,
-							] of event.urlFetchResults.entries()) {
+							for (const [index, result] of event.urlFetchResults.entries()) {
 								await logger.logUrlFetchResult(
 									index + 1,
 									result.url,

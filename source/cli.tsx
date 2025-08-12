@@ -4,7 +4,6 @@ import {render} from 'ink';
 import App from './app.js';
 import {parseArgs} from './utils/args.js';
 
-
 // Parse arguments
 const args = parseArgs();
 
