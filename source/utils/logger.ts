@@ -1,6 +1,8 @@
 import {promises as fs} from 'node:fs';
 import * as path from 'node:path';
 import type {ResponseUsage} from 'openai/resources/responses/responses.js';
+import {modelPricing} from './pricing.js';
+import type {CliArgs} from '../types.js';
 
 export interface InteractionMetrics {
 	timestamp: Date;
@@ -12,6 +14,11 @@ export interface InteractionMetrics {
 		cachedTokens: number;
 		thinkingTokens: number;
 		totalTokens: number;
+		cost?: {
+			input: number;
+			output: number;
+			total: number;
+		};
 	};
 	urlFetches?: UrlFetchMetrics[];
 }
@@ -45,11 +52,13 @@ export interface CumulativeMetrics {
 	totalOutputTokens: number;
 	totalCachedTokens: number;
 	totalThinkingTokens: number;
+	totalCost: number;
 	totalUrlFetches: number;
 	interactions: Array<{
 		number: string;
 		status: string;
 		duration: string;
+		model: string;
 		input: number;
 		output: number;
 		cached: number;
@@ -82,6 +91,7 @@ export class SessionLogger {
 			totalCachedTokens: 0,
 			totalThinkingTokens: 0,
 			totalUrlFetches: 0,
+			totalCost: 0,
 			interactions: [],
 		};
 
@@ -310,6 +320,21 @@ export class SessionLogger {
 		content += `**Duration:** ${this.formatDuration(this.currentMetrics.duration)}\n\n`;
 
 		if (this.currentMetrics.usage) {
+			const model = this.currentMetrics.model as keyof typeof modelPricing;
+			const prices = modelPricing[model];
+			if (prices) {
+				const inputCost = this.currentMetrics.usage.inputTokens * prices.input;
+				const outputCost =
+					this.currentMetrics.usage.outputTokens * prices.output;
+				const totalCost = inputCost + outputCost;
+				this.currentMetrics.usage.cost = {
+					input: inputCost,
+					output: outputCost,
+					total: totalCost,
+				};
+				this.cumulativeMetrics.totalCost += totalCost;
+			}
+
 			content += '## Tokens\n';
 			content += `- Input: ${this.currentMetrics.usage.inputTokens}`;
 			if (this.currentMetrics.usage.cachedTokens > 0) {
@@ -321,6 +346,18 @@ export class SessionLogger {
 				content += `- Thinking: ${this.currentMetrics.usage.thinkingTokens}\n`;
 			}
 			content += `- Total: ${this.currentMetrics.usage.totalTokens}\n\n`;
+
+			if (this.currentMetrics.usage.cost) {
+				const formatCurrency = new Intl.NumberFormat('en-US', {
+					style: 'currency',
+					currency: 'USD',
+					minimumFractionDigits: 6,
+				}).format;
+				content += '## Cost\n';
+				content += `- Input: ${formatCurrency(this.currentMetrics.usage.cost.input)}\n`;
+				content += `- Output: ${formatCurrency(this.currentMetrics.usage.cost.output)}\n`;
+				content += `- Total: ${formatCurrency(this.currentMetrics.usage.cost.total)}\n\n`;
+			}
 		}
 
 		if (
@@ -344,6 +381,7 @@ export class SessionLogger {
 			number: this.formatFileNumber(this.interactionCount),
 			status: '✅ Complete',
 			duration: this.formatDuration(this.currentMetrics.duration),
+			model: this.currentMetrics.model,
 			input: this.currentMetrics.usage?.inputTokens || 0,
 			output: this.currentMetrics.usage?.outputTokens || 0,
 			cached: this.currentMetrics.usage?.cachedTokens || 0,
@@ -388,6 +426,9 @@ export class SessionLogger {
 			error: '❌',
 		};
 		content += `**State:** ${statusEmoji[this.currentStatus.state]} ${this.getStatusText(this.currentStatus.state)}\n`;
+		if (this.currentMetrics) {
+			content += `**Model:** ${this.currentMetrics.model}\n`;
+		}
 		content += `**Current Interaction:** ${this.formatFileNumber(this.currentStatus.currentInteraction)}\n`;
 		if (this.currentStatus.progress) {
 			content += `**Progress:** ${this.currentStatus.progress}\n`;
@@ -419,16 +460,24 @@ export class SessionLogger {
 		if (this.cumulativeMetrics.totalThinkingTokens > 0) {
 			content += `**Total Thinking Tokens:** ${this.cumulativeMetrics.totalThinkingTokens.toLocaleString()}\n`;
 		}
+		const formatCurrency = new Intl.NumberFormat('en-US', {
+			style: 'currency',
+			currency: 'USD',
+			minimumFractionDigits: 6,
+		}).format;
+		content += `**Total Cost:** ${formatCurrency(this.cumulativeMetrics.totalCost)}\n`;
 		content += `**Total URL Fetches:** ${this.cumulativeMetrics.totalUrlFetches}\n\n`;
 
 		// Interactions Summary
 		if (this.cumulativeMetrics.interactions.length > 0) {
 			content += '## Interactions Summary\n';
-			content += '| # | Status | Duration | Input | Output | Cached | URLs |\n';
-			content += '|---|--------|----------|-------|--------|--------|------|\n';
+			content +=
+				'| # | Status | Duration | Model | Input | Output | Cached | URLs |\n';
+			content +=
+				'|---|--------|----------|-------|-------|--------|--------|------|\n';
 
 			for (const interaction of this.cumulativeMetrics.interactions) {
-				content += `| ${interaction.number} | ${interaction.status} | ${interaction.duration} | ${interaction.input} | ${interaction.output} | ${interaction.cached} | ${interaction.urls} |\n`;
+				content += `| ${interaction.number} | ${interaction.status} | ${interaction.duration} | ${interaction.model} | ${interaction.input} | ${interaction.output} | ${interaction.cached} | ${interaction.urls} |\n`;
 			}
 
 			// Add current in-progress interaction if any
@@ -442,7 +491,7 @@ export class SessionLogger {
 				);
 				const currentElapsed =
 					Date.now() - (this.currentMetrics?.timestamp.getTime() || Date.now());
-				content += `| ${currentNum} | 🔄 In Progress | ${this.formatDuration(currentElapsed)} | ... | ... | ... | ... |\n`;
+				content += `| ${currentNum} | 🔄 In Progress | ${this.formatDuration(currentElapsed)} | ${this.currentMetrics?.model} | ... | ... | ... | ... |\n`;
 			}
 		}
 
@@ -534,6 +583,7 @@ export class SessionLogger {
 			const interactionData = this.cumulativeMetrics.interactions[i - 1];
 			if (interactionData) {
 				content += `**Timestamp:** ${new Date(this.sessionStartTime.getTime() + (i - 1) * 60000).toISOString()}\n`;
+				content += `**Model:** ${interactionData.model}\n`;
 				content += `**Duration:** ${interactionData.duration}\n`;
 				content += `**Tokens:** Input: ${interactionData.input}, Output: ${interactionData.output}, Cached: ${interactionData.cached}\n`;
 				if (interactionData.urls > 0) {

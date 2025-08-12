@@ -360,7 +360,7 @@ export class OpenAiClient {
 						requestedUrls,
 						urlMetrics: metrics.urlFetches,
 						urlFetchResults: toolResult.results,
-						usage: responseUsage,
+						usage: responseUsage || undefined,
 					};
 					yield continuationEvent;
 				}

@@ -27,7 +27,16 @@ export type ResponseStreamEvent = {
 	toolStatus?: string;
 	responseId?: string;
 	model?: string;
-	usage?: any; // Will be ResponseUsage from OpenAI
+	usage?: {
+		completion_tokens: number;
+		prompt_tokens: number;
+		total_tokens: number;
+		cost?: {
+			prompt: number;
+			completion: number;
+			total: number;
+		};
+	};
 	urlMetrics?: Array<{
 		url: string;
 		startTime: number;
@@ -62,7 +71,16 @@ export type StreamingState =
 export interface StreamMetrics {
 	startTime: number;
 	endTime?: number;
-	usage?: any; // ResponseUsage from OpenAI
+	usage?: {
+		completion_tokens: number;
+		prompt_tokens: number;
+		total_tokens: number;
+		cost?: {
+			prompt: number;
+			completion: number;
+			total: number;
+		};
+	};
 	urlFetches?: Array<{
 		url: string;
 		startTime: number;
