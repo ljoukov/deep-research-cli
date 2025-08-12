@@ -139,20 +139,26 @@ export default function App({args, apiKey}: AppProps) {
 
 			case 'output': {
 				setStreamingState('responding');
+				let newContent = '';
 				if (event.delta) {
-					const newFinalContent = finalOutputContent + event.delta;
-					setFinalOutputContent(newFinalContent);
-					setOutputContent(previous => previous + event.delta);
+					newContent = event.delta;
+				} else if (event.content) {
+					newContent = event.content;
+				}
 
-					const newCounter = streamingSaveCounter + event.delta.length;
+				if (newContent) {
+					const newFinalContent = finalOutputContent + newContent;
+					setFinalOutputContent(newFinalContent);
+					setOutputContent(previous => previous + newContent);
+
+					const newCounter = streamingSaveCounter + newContent.length;
 					setStreamingSaveCounter(newCounter);
 
-					if (shouldSaveStreamingUpdate(streamingSaveCounter, event.delta)) {
+					if (shouldSaveStreamingUpdate(streamingSaveCounter, newContent)) {
 						setStreamingSaveCounter(0);
 						await saveStreamingUpdate(newFinalContent, userMessage);
 					}
 				}
-
 				break;
 			}
 

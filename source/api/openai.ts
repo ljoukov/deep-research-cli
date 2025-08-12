@@ -37,7 +37,6 @@ export class OpenAiClient {
 		model: string,
 		input: string,
 		conversationHistory: ChatMessage[] = [],
-		onEvent?: (event: ResponseStreamEvent) => void,
 	): AsyncGenerator<ResponseStreamEvent> {
 		try {
 			// Build properly typed conversation input
@@ -104,7 +103,7 @@ export class OpenAiClient {
 							model: event.response?.model,
 							content: 'Response created',
 						};
-						onEvent?.(streamEvent);
+
 						yield streamEvent;
 						break;
 					}
@@ -115,7 +114,7 @@ export class OpenAiClient {
 							responseId: event.response?.id,
 							content: 'Response in progress',
 						};
-						onEvent?.(streamEvent);
+
 						yield streamEvent;
 						break;
 					}
@@ -128,7 +127,7 @@ export class OpenAiClient {
 								type: 'thinking',
 								content: '',
 							};
-							onEvent?.(streamEvent);
+
 							yield streamEvent;
 						}
 
@@ -145,7 +144,7 @@ export class OpenAiClient {
 							type: 'thinking',
 							delta: event.delta,
 						};
-						onEvent?.(streamEvent);
+
 						yield streamEvent;
 						break;
 					}
@@ -161,7 +160,7 @@ export class OpenAiClient {
 							type: 'output',
 							delta: event.delta,
 						};
-						onEvent?.(streamEvent);
+
 						yield streamEvent;
 						break;
 					}
@@ -174,7 +173,7 @@ export class OpenAiClient {
 							toolStatus: 'processing',
 							delta: event.delta,
 						};
-						onEvent?.(streamEvent);
+
 						yield streamEvent;
 						break;
 					}
@@ -189,7 +188,7 @@ export class OpenAiClient {
 							toolStatus: 'executing',
 							content: 'Fetching URLs...',
 						};
-						onEvent?.(streamEvent);
+
 						yield streamEvent;
 
 						try {
@@ -206,10 +205,15 @@ export class OpenAiClient {
 								toolStatus: 'executing',
 								content: `Fetching ${urls.length} URL(s): ${urlsPreview}`,
 							};
-							onEvent?.(streamEvent);
+
 							yield streamEvent;
 
 							const result = await this.fetchUrls(urls);
+
+							yield {
+								type: 'output',
+								content: result,
+							};
 
 							// Create completion status event
 							const completedEvent: ResponseStreamEvent = {
@@ -218,7 +222,7 @@ export class OpenAiClient {
 								toolStatus: 'completed',
 								content: `Fetched ${urls.length} URL(s) - ${result.length} chars: ${urlsPreview}`,
 							};
-							onEvent?.(completedEvent);
+
 							yield completedEvent;
 						} catch (error) {
 							const errorEvent: ResponseStreamEvent = {
@@ -227,7 +231,7 @@ export class OpenAiClient {
 								toolStatus: 'error',
 								content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
 							};
-							onEvent?.(errorEvent);
+
 							yield errorEvent;
 						}
 						break;
@@ -253,7 +257,7 @@ export class OpenAiClient {
 				type: 'error',
 				content: error instanceof Error ? error.message : 'Unknown error',
 			};
-			onEvent?.(streamEvent);
+
 			yield streamEvent;
 		}
 	}
