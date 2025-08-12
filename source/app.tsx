@@ -211,11 +211,14 @@ export default function App({args, apiKey}: AppProps) {
 
 			case 'error': {
 				setStreamingState('error');
-				setError(event.content ?? 'Unknown error occurred');
+				const errorMessage = event.content ?? 'Unknown error occurred';
+				setError(errorMessage);
+				if (event.error) {
+					await logger.logError(event.error, undefined, 'Stream Error');
+				}
 				if (args.request ?? args.requestFile) {
 					exit();
 				}
-
 				break;
 			}
 		}
@@ -452,12 +455,12 @@ export default function App({args, apiKey}: AppProps) {
 				await logger.createSessionLog();
 			}
 		} catch (error_) {
+			// Errors from the stream are handled by the 'error' event in handleStreamEvent.
+			// This catch block is for any other unexpected errors during the processRequest execution.
+			const error = error_ instanceof Error ? error_ : new Error(String(error_));
 			setStreamingState('error');
-			setError(error_ instanceof Error ? error_.message : 'Unknown error');
-			await logger.setCurrentState(
-				'error',
-				error_ instanceof Error ? error_.message : 'Unknown error',
-			);
+			setError(error.message);
+			await logger.logError(error, undefined, 'ProcessRequest Error');
 
 			// Create session log even on error
 			if (args.request || args.requestFile) {
@@ -511,8 +514,15 @@ export default function App({args, apiKey}: AppProps) {
 			</Box>
 
 			{error && (
-				<Box marginBottom={1}>
-					<Text color="red">❌ Error: {error}</Text>
+				<Box
+					marginBottom={1}
+					padding={1}
+					borderStyle="round"
+					borderColor="red"
+				>
+					<Text color="red">
+						<Text bold>❌ Error:</Text> {error}
+					</Text>
 				</Box>
 			)}
 

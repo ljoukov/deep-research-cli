@@ -46,6 +46,7 @@ export type ResponseStreamEvent = {
 	toolResult?: string;
 	requestedUrls?: string[];
 	urlFetchResults?: UrlFetchResult[];
+	error?: Error;
 };
 
 export type UrlFetchResult = {

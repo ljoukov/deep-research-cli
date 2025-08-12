@@ -3,6 +3,7 @@ import type {
 	ResponseInput,
 	EasyInputMessage,
 	ResponseUsage,
+	Tool,
 } from 'openai/resources/responses/responses.js';
 import type {
 	ResponseStreamEvent,
@@ -175,35 +176,38 @@ export class OpenAiClient {
 			// Store requested URLs for logging
 			let requestedUrls: string[] = [];
 
+			const fetchUrlsTool: Tool = {
+				type: 'function',
+				name: 'fetch_urls',
+				description:
+					'Fetch content from one or more URLs and return them in markdown format',
+				parameters: {
+					type: 'object',
+					properties: {
+						urls: {
+							type: 'array',
+							items: {
+								type: 'string',
+							},
+							description: 'Array of URLs to fetch content from',
+						},
+					},
+					required: ['urls'],
+					additionalProperties: false,
+				},
+				strict: true,
+			};
+			const webSearchTool: Tool = {type: 'web_search_preview'};
+			const tools: Tool[] = [webSearchTool];
+			// if (model !== 'o3-deep-research') {
+			tools.push(fetchUrlsTool);
+			// }
 			const stream = await this.client.responses.create({
 				model,
 				input: messages,
 				stream: true,
 				reasoning: {summary: 'detailed'},
-				tools: [
-					{type: 'web_search_preview'},
-					{
-						type: 'function',
-						name: 'fetch_urls',
-						description:
-							'Fetch content from one or more URLs and return them in markdown format',
-						parameters: {
-							type: 'object',
-							properties: {
-								urls: {
-									type: 'array',
-									items: {
-										type: 'string',
-									},
-									description: 'Array of URLs to fetch content from',
-								},
-							},
-							required: ['urls'],
-							additionalProperties: false,
-						},
-						strict: true,
-					},
-				],
+				tools,
 			});
 
 			for await (const event of stream) {
@@ -423,8 +427,8 @@ export class OpenAiClient {
 			const streamEvent: ResponseStreamEvent = {
 				type: 'error',
 				content: error instanceof Error ? error.message : 'Unknown error',
+				error: error instanceof Error ? error : new Error(String(error)),
 			};
-
 			yield streamEvent;
 		}
 	}
@@ -517,8 +521,8 @@ export class OpenAiClient {
 			const streamEvent: ResponseStreamEvent = {
 				type: 'error',
 				content: error instanceof Error ? error.message : 'Unknown error',
+				error: error instanceof Error ? error : new Error(String(error)),
 			};
-
 			yield streamEvent;
 		}
 	}

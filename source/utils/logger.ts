@@ -1,5 +1,6 @@
 import {promises as fs} from 'node:fs';
 import * as path from 'node:path';
+import chalk from 'chalk';
 import type {Usage} from '../types.js';
 
 export interface InteractionMetrics {
@@ -512,6 +513,71 @@ export class SessionLogger {
 
 	getCurrentInteractionNumber(): number {
 		return this.interactionCount;
+	}
+
+	async logError(
+		error: Error,
+		interactionNumber?: number,
+		context?: string,
+	): Promise<void> {
+		await this.ensureDirectory();
+		const timestamp = new Date().toISOString();
+		const interactionNum =
+			interactionNumber ?? this.currentStatus.currentInteraction;
+		const logFilename = `error-${timestamp}.log`;
+		const filepath = path.join(this.sessionDir, logFilename);
+
+		let content = `Timestamp: ${timestamp}\n`;
+		content += `Interaction: ${this.formatFileNumber(interactionNum)}\n`;
+		if (context) {
+			content += `Context: ${context}\n`;
+		}
+		content += `\n--- ERROR MESSAGE ---\n`;
+		content += `${error.message}\n`;
+		content += `\n--- STACK TRACE ---\n`;
+		content += `${error.stack || 'No stack trace available'}\n`;
+
+		await fs.writeFile(filepath, content, 'utf8');
+
+		// Also update the main stats file
+		this.currentStatus.state = 'error';
+		this.currentStatus.progress = `Error logged to ${logFilename}`;
+		await this.updateGlobalStats();
+	}
+
+	async logFatalError(error: Error): Promise<void> {
+		console.error(
+			chalk.red.bold('\n\n❌ A fatal error occurred. Session terminated.\n'),
+		);
+		console.error(chalk.red(error.stack || error.message));
+
+		await this.ensureDirectory();
+		const timestamp = new Date().toISOString();
+		const logFilename = `fatal-error-${timestamp}.log`;
+		const filepath = path.join(this.sessionDir, logFilename);
+
+		let content = `FATAL ERROR\n`;
+		content += `Timestamp: ${timestamp}\n`;
+		content += `\n--- ERROR MESSAGE ---\n`;
+		content += `${error.message}\n`;
+		content += `\n--- STACK TRACE ---\n`;
+		content += `${error.stack || 'No stack trace available'}\n`;
+
+		try {
+			await fs.writeFile(filepath, content, 'utf8');
+			console.error(
+				chalk.yellow(
+					`\n📋 Full error details have been logged to: ${filepath}`,
+				),
+			);
+		} catch (writeError) {
+			console.error(
+				chalk.red.bold(
+					'Additionally, failed to write the fatal error log file.',
+				),
+			);
+			console.error(writeError);
+		}
 	}
 
 	async logUrlMetrics(metrics: UrlFetchMetrics[]): Promise<void> {
