@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import process from 'node:process';
 import {render} from 'ink';
 import dotenv from 'dotenv';
 import App from './app.js';

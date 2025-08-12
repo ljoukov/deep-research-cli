@@ -6,7 +6,9 @@ export async function readInputFile(path: string): Promise<string> {
 		const content = await fs.readFile(path, 'utf8');
 		return content.trim();
 	} catch (error) {
-		throw new Error(`Failed to read file ${path}: ${error instanceof Error ? error.message : String(error)}`);
+		throw new Error(
+			`Failed to read file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 }
 
@@ -15,9 +17,11 @@ export async function writeOutputFile(
 	content: string,
 ): Promise<void> {
 	try {
-		await fs.writeFile(path, content, 'utf-8');
+		await fs.writeFile(path, content, 'utf8');
 	} catch (error) {
-		throw new Error(`Failed to write file ${path}: ${error}`);
+		throw new Error(
+			`Failed to write file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 }
 
@@ -46,8 +50,10 @@ export async function writeConversationToFile(
 			content += `${message.content}${isIncomplete ? '\n\n[Response still streaming...]' : ''}\n\n`;
 		}
 
-		await fs.writeFile(path, content, 'utf-8');
+		await fs.writeFile(path, content, 'utf8');
 	} catch (error) {
-		throw new Error(`Failed to write conversation file ${path}: ${error}`);
+		throw new Error(
+			`Failed to write conversation file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 }

@@ -14,9 +14,14 @@
 		"start": "bun run source/cli.tsx",
 		"dev": "bun run source/cli.tsx",
 		"build": "tsc",
-		"test": "prettier --check . && xo --ignore third_party && ava"
+		"test": "prettier --check . && xo --ignore third_party && vitest run",
+		"test:lint": "prettier --check . && xo --ignore third_party",
+		"test:unit": "vitest run",
+		"test:watch": "vitest",
+		"test:ui": "vitest --ui"
 	},
 	"files": [
+		"source",
 		"dist"
 	],
 	"dependencies": {
@@ -30,30 +35,23 @@
 	},
 	"devDependencies": {
 		"@sindresorhus/tsconfig": "^8.0.1",
+		"@testing-library/jest-dom": "^6.6.4",
+		"@testing-library/react": "^16.3.0",
 		"@types/node": "^24.2.1",
-		"@types/react": "^19.1.10",
 		"@types/yargs": "^17.0.33",
 		"@vdemedes/prettier-config": "^2.0.1",
-		"ava": "^6.4.1",
+		"@vitest/ui": "^3.2.4",
 		"bun-types": "^1.2.20",
 		"chalk": "^5.5.0",
 		"eslint-config-xo-react": "^0.28.0",
 		"eslint-plugin-react": "^7.37.5",
 		"eslint-plugin-react-hooks": "^5.2.0",
-		"ink-testing-library": "^4.0.0",
+		"jsdom": "^26.1.0",
 		"prettier": "^3.6.2",
 		"ts-node": "^10.9.2",
 		"typescript": "^5.9.2",
+		"vitest": "^3.2.4",
 		"xo": "^1.2.1"
-	},
-	"ava": {
-		"extensions": {
-			"ts": "module",
-			"tsx": "module"
-		},
-		"nodeArguments": [
-			"--loader=ts-node/esm"
-		]
 	},
 	"xo": {
 		"prettier": true,
