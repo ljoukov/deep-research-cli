@@ -22,6 +22,10 @@ const modelPricing = {
 		input: 0.25 / 1_000_000,
 		output: 2 / 1_000_000,
 	},
+	'gpt-5-nano': {
+		input: 0.05 / 1_000_000,
+		output: 0.4 / 1_000_000,
+	},
 	o3: {
 		input: 0.5 / 1_000_000,
 		output: 1.5 / 1_000_000,
@@ -48,17 +52,19 @@ function calculateUsage(
 	const prices = modelPricing[modelKey];
 	let cost: number | undefined;
 
+	const cached_tokens = usage.input_tokens_details?.cached_tokens || 0;
 	if (prices) {
 		const inputCost = usage.input_tokens * prices.input;
+		const cachedInputCost = (cached_tokens * prices.input) / 10;
 		const outputCost = usage.output_tokens * prices.output;
-		cost = inputCost + outputCost;
+		cost = inputCost + cachedInputCost + outputCost;
 	}
 
 	return {
 		prompt_tokens: usage.input_tokens,
 		completion_tokens: usage.output_tokens,
 		total_tokens: usage.total_tokens,
-		cached_tokens: usage.input_tokens_details?.cached_tokens || 0,
+		cached_tokens,
 		thinking_tokens: usage.output_tokens_details?.reasoning_tokens || 0,
 		cost,
 	};
