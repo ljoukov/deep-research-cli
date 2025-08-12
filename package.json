@@ -27,7 +27,6 @@
 	],
 	"dependencies": {
 		"@inkjs/ui": "^2.0.0",
-		"dotenv": "^17.2.1",
 		"ink": "^6.1.0",
 		"meow": "^13.2.0",
 		"openai": "^5.12.2",

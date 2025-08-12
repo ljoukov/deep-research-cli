@@ -1,12 +1,9 @@
 #!/usr/bin/env bun
 import process from 'node:process';
 import {render} from 'ink';
-import dotenv from 'dotenv';
 import App from './app.js';
 import {parseArgs} from './utils/args.js';
 
-// Load environment variables
-dotenv.config();
 
 // Parse arguments
 const args = parseArgs();
