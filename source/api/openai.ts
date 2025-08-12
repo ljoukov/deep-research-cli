@@ -254,7 +254,12 @@ export class OpenAiClient {
 					}
 
 					case 'response.reasoning_summary_part.added': {
-						// New summary part added
+						const streamEvent: ResponseStreamEvent = {
+							type: 'thinking',
+							delta: '\n\n',
+						};
+
+						yield streamEvent;
 						break;
 					}
 
@@ -492,6 +497,16 @@ export class OpenAiClient {
 						if (event.item?.type === 'reasoning') {
 							yield {type: 'thinking', content: ''};
 						}
+						break;
+					}
+
+					case 'response.reasoning_summary_part.added': {
+						const streamEvent: ResponseStreamEvent = {
+							type: 'thinking',
+							delta: '\n\n',
+						};
+
+						yield streamEvent;
 						break;
 					}
 
