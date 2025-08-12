@@ -2,8 +2,13 @@ import OpenAI from 'openai';
 import type {
 	ResponseInput,
 	EasyInputMessage,
+	ResponseUsage,
 } from 'openai/resources/responses/responses.js';
-import type {ResponseStreamEvent, ChatMessage} from '../types.js';
+import type {
+	ResponseStreamEvent,
+	ChatMessage,
+	StreamMetrics,
+} from '../types.js';
 
 export class OpenAiClient {
 	private readonly client: OpenAI;
@@ -14,23 +19,57 @@ export class OpenAiClient {
 		});
 	}
 
-	private async fetchUrls(urls: string[]): Promise<string> {
+	private async fetchUrls(
+		urls: string[],
+		metrics: StreamMetrics,
+	): Promise<{content: string; urlMetrics: StreamMetrics['urlFetches']}> {
+		const urlMetrics: NonNullable<StreamMetrics['urlFetches']> = [];
+
 		const fetchPromises = urls.map(async url => {
+			const startTime = Date.now();
 			try {
 				const jinaUrl = `https://r.jina.ai/${url}`;
 				const response = await fetch(jinaUrl);
+				const endTime = Date.now();
+
 				if (!response.ok) {
+					urlMetrics.push({
+						url,
+						startTime,
+						endTime,
+						sizeBytes: 0,
+					});
 					return `Error fetching ${url}: ${response.status} ${response.statusText}`;
 				}
+
 				const content = await response.text();
+				const sizeBytes = new TextEncoder().encode(content).length;
+
+				urlMetrics.push({
+					url,
+					startTime,
+					endTime,
+					sizeBytes,
+				});
+
 				return `# Content from ${url}\n\n${content}`;
 			} catch (error) {
+				const endTime = Date.now();
+				urlMetrics.push({
+					url,
+					startTime,
+					endTime,
+					sizeBytes: 0,
+				});
 				return `Error fetching ${url}: ${error instanceof Error ? error.message : 'Unknown error'}`;
 			}
 		});
 
 		const results = await Promise.all(fetchPromises);
-		return results.join('\n\n---\n\n');
+		return {
+			content: results.join('\n\n---\n\n'),
+			urlMetrics,
+		};
 	}
 
 	async *streamResponse(
@@ -38,6 +77,13 @@ export class OpenAiClient {
 		input: string,
 		conversationHistory: ChatMessage[] = [],
 	): AsyncGenerator<ResponseStreamEvent> {
+		const metrics: StreamMetrics = {
+			startTime: Date.now(),
+			urlFetches: [],
+		};
+
+		let responseUsage: ResponseUsage | null = null;
+
 		try {
 			// Build properly typed conversation input
 			let messages: ResponseInput = [
@@ -63,6 +109,9 @@ export class OpenAiClient {
 
 			// Flag to track if we need to continue after tool calls
 			let needsContinuation = false;
+
+			// Store requested URLs for logging
+			let requestedUrls: string[] = [];
 
 			const stream = await this.client.responses.create({
 				model,
@@ -212,24 +261,36 @@ export class OpenAiClient {
 
 							yield streamEvent;
 
-							const result = await this.fetchUrls(urls);
+							// Store requested URLs for logging
+							requestedUrls = urls;
+
+							const fetchResult = await this.fetchUrls(urls, metrics);
+
+							// Add URL metrics to overall metrics
+							if (fetchResult.urlMetrics) {
+								metrics.urlFetches = [
+									...(metrics.urlFetches || []),
+									...fetchResult.urlMetrics,
+								];
+							}
 
 							// Store the tool call result for continuation
 							toolCallResults.push({
 								toolName: 'fetch_urls',
 								args,
-								result,
+								result: fetchResult.content,
 							});
 
 							// Mark that we need continuation
 							needsContinuation = true;
 
-							// Create completion status event
+							// Create completion status event with metrics
 							const completedEvent: ResponseStreamEvent = {
 								type: 'tool_use',
 								toolName: 'fetch_urls',
 								toolStatus: 'completed',
-								content: `Fetched ${urls.length} URL(s) - ${result.length} chars: ${urlsPreview}`,
+								content: `Fetched ${urls.length} URL(s) - ${fetchResult.content.length} chars: ${urlsPreview}`,
+								urlMetrics: fetchResult.urlMetrics,
 							};
 
 							yield completedEvent;
@@ -247,10 +308,19 @@ export class OpenAiClient {
 					}
 
 					case 'response.completed': {
+						// Extract usage information
+						if (event.response?.usage) {
+							responseUsage = event.response.usage as ResponseUsage;
+						}
+
 						// Don't yield complete yet if we need to continue with tool results
 						if (!needsContinuation) {
+							metrics.endTime = Date.now();
+							metrics.usage = responseUsage || undefined;
+
 							yield {
 								type: 'complete',
+								usage: responseUsage || undefined,
 							};
 						}
 						break;
@@ -357,8 +427,17 @@ export class OpenAiClient {
 						}
 
 						case 'response.completed': {
+							// Extract usage information from continuation
+							if (event.response?.usage) {
+								responseUsage = event.response.usage as ResponseUsage;
+							}
+
+							metrics.endTime = Date.now();
+							metrics.usage = responseUsage || undefined;
+
 							yield {
 								type: 'complete',
+								usage: responseUsage || undefined,
 							};
 							break;
 						}

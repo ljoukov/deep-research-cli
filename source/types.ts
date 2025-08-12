@@ -26,6 +26,13 @@ export type ResponseStreamEvent = {
 	toolStatus?: string;
 	responseId?: string;
 	model?: string;
+	usage?: any; // Will be ResponseUsage from OpenAI
+	urlMetrics?: Array<{
+		url: string;
+		startTime: number;
+		endTime: number;
+		sizeBytes: number;
+	}>;
 };
 
 export type StreamingState =
@@ -36,3 +43,15 @@ export type StreamingState =
 	| 'responding'
 	| 'error'
 	| 'complete';
+
+export interface StreamMetrics {
+	startTime: number;
+	endTime?: number;
+	usage?: any; // ResponseUsage from OpenAI
+	urlFetches?: Array<{
+		url: string;
+		startTime: number;
+		endTime: number;
+		sizeBytes: number;
+	}>;
+}
