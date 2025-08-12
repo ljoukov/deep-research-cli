@@ -54,12 +54,6 @@ export class OpenAiClient {
 				} satisfies EasyInputMessage,
 			];
 
-			let pendingFunctionCall: {
-				id: string;
-				name: string;
-				arguments: string;
-			} | null = null;
-
 			const stream = await this.client.responses.create({
 				model,
 				input: messages,
