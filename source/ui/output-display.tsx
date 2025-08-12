@@ -10,6 +10,10 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
 	content,
 	isStreaming = false,
 }) => {
+	// During streaming, show only the last 2000 characters to improve performance
+	// When complete, show full content
+	const displayContent = isStreaming ? content.slice(-2000) : content;
+
 	return (
 		<Box flexDirection="column" marginY={1}>
 			<Box>
@@ -18,7 +22,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
 				</Text>
 			</Box>
 			<Box marginLeft={2} marginTop={1}>
-				<Text>{content}</Text>
+				<Text>{displayContent}</Text>
 				{isStreaming && <Text color="cyan"> ▌</Text>}
 			</Box>
 		</Box>

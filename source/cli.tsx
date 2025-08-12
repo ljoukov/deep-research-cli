@@ -16,7 +16,9 @@ const main = async () => {
 		const apiKey = process.env['OPENAI_API_KEY'];
 		if (!apiKey) {
 			console.error(
-				chalk.red.bold('❌ Error: OPENAI_API_KEY not found in environment variables'),
+				chalk.red.bold(
+					'❌ Error: OPENAI_API_KEY not found in environment variables',
+				),
 			);
 			console.error(
 				chalk.yellow('Please add OPENAI_API_KEY to your .env file'),
@@ -36,6 +38,9 @@ const main = async () => {
 
 main().catch(error => {
 	// This is a fallback for any error that might slip through main's try/catch
-	console.error(chalk.red.bold('An unexpected error occurred in the CLI:'), error);
+	console.error(
+		chalk.red.bold('An unexpected error occurred in the CLI:'),
+		error,
+	);
 	process.exit(1);
 });

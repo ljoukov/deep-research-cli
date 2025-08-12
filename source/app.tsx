@@ -1,4 +1,4 @@
-import {useState, useEffect} from 'react';
+import {useState, useEffect, useRef, useCallback} from 'react';
 import {Box, Text, useApp} from 'ink';
 import {Spinner} from '@inkjs/ui';
 import {ThinkingStream} from './ui/thinking-stream.js';
@@ -33,13 +33,67 @@ const useStreamingLogic = () => {
 		[],
 	);
 
+	// Debouncing for output content updates to improve performance
+	const outputContentRef = useRef('');
+	const debouncedUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+	const setOutputContentDebounced = useCallback(
+		(updater: string | ((prev: string) => string)) => {
+			const newContent =
+				typeof updater === 'function'
+					? updater(outputContentRef.current)
+					: updater;
+			outputContentRef.current = newContent;
+
+			// Clear existing timeout
+			if (debouncedUpdateTimeoutRef.current) {
+				clearTimeout(debouncedUpdateTimeoutRef.current);
+			}
+
+			// Debounce updates to every 50ms during streaming
+			debouncedUpdateTimeoutRef.current = setTimeout(() => {
+				setOutputContent(newContent);
+			}, 50);
+		},
+		[],
+	);
+
+	// Immediate update (for non-streaming scenarios)
+	const setOutputContentImmediate = useCallback(
+		(updater: string | ((prev: string) => string)) => {
+			const newContent =
+				typeof updater === 'function'
+					? updater(outputContentRef.current)
+					: updater;
+			outputContentRef.current = newContent;
+			setOutputContent(newContent);
+
+			// Clear any pending debounced update
+			if (debouncedUpdateTimeoutRef.current) {
+				clearTimeout(debouncedUpdateTimeoutRef.current);
+				debouncedUpdateTimeoutRef.current = null;
+			}
+		},
+		[],
+	);
+
+	// Cleanup on unmount
+	useEffect(() => {
+		return () => {
+			if (debouncedUpdateTimeoutRef.current) {
+				clearTimeout(debouncedUpdateTimeoutRef.current);
+			}
+		};
+	}, []);
+
 	return {
 		streamingState,
 		setStreamingState,
 		thinkingContent,
 		setThinkingContent,
 		outputContent,
-		setOutputContent,
+		setOutputContent: setOutputContentDebounced,
+		setOutputContentImmediate,
 		error,
 		setError,
 		toolStatus,
@@ -59,6 +113,7 @@ export default function App({args, apiKey}: AppProps) {
 		setThinkingContent,
 		outputContent,
 		setOutputContent,
+		setOutputContentImmediate,
 		error,
 		setError,
 		toolStatus,
@@ -205,6 +260,8 @@ export default function App({args, apiKey}: AppProps) {
 			}
 
 			case 'complete': {
+				// Ensure final content is displayed immediately on completion
+				setOutputContentImmediate(finalOutputContent);
 				await handleCompletion(finalOutputContent, userMessage);
 				return;
 			}
@@ -257,7 +314,7 @@ export default function App({args, apiKey}: AppProps) {
 	const processRequest = async (input: string) => {
 		setStreamingState('created');
 		setThinkingContent('');
-		setOutputContent('');
+		setOutputContentImmediate('');
 		setError(undefined);
 		setToolStatus(undefined);
 
@@ -375,7 +432,10 @@ export default function App({args, apiKey}: AppProps) {
 							toolResponseLogged = true;
 						}
 
-						await logger.updateMetrics(event.usage || null, Date.now() - startTime);
+						await logger.updateMetrics(
+							event.usage || null,
+							Date.now() - startTime,
+						);
 						await logger.logInteractionStats();
 
 						// 2. Start a new interaction for the tool response
@@ -425,10 +485,10 @@ export default function App({args, apiKey}: AppProps) {
 						}
 						return; // Exit after handling continuation
 
-				case 'complete':
-					// Store usage for final metrics
-					usage = event.usage;
-					break;
+					case 'complete':
+						// Store usage for final metrics
+						usage = event.usage;
+						break;
 				}
 
 				// Pass to UI handler
@@ -459,7 +519,8 @@ export default function App({args, apiKey}: AppProps) {
 		} catch (error_) {
 			// Errors from the stream are handled by the 'error' event in handleStreamEvent.
 			// This catch block is for any other unexpected errors during the processRequest execution.
-			const error = error_ instanceof Error ? error_ : new Error(String(error_));
+			const error =
+				error_ instanceof Error ? error_ : new Error(String(error_));
 			setStreamingState('error');
 			setError(error.message);
 			await logger.logError(error, undefined, 'ProcessRequest Error');
@@ -516,12 +577,7 @@ export default function App({args, apiKey}: AppProps) {
 			</Box>
 
 			{error && (
-				<Box
-					marginBottom={1}
-					padding={1}
-					borderStyle="round"
-					borderColor="red"
-				>
+				<Box marginBottom={1} padding={1} borderStyle="round" borderColor="red">
 					<Text color="red">
 						<Text bold>❌ Error:</Text> {error}
 					</Text>
