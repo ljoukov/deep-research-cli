@@ -1,12 +1,12 @@
-import {promises as fs} from 'fs';
+import {promises as fs} from 'node:fs';
 import type {ChatMessage} from '../types.js';
 
 export async function readInputFile(path: string): Promise<string> {
 	try {
-		const content = await fs.readFile(path, 'utf-8');
+		const content = await fs.readFile(path, 'utf8');
 		return content.trim();
 	} catch (error) {
-		throw new Error(`Failed to read file ${path}: ${error}`);
+		throw new Error(`Failed to read file ${path}: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 

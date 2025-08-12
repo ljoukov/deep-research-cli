@@ -1,16 +1,21 @@
 import {useState, useEffect} from 'react';
 import {Box, Text, useApp} from 'ink';
 import {Spinner} from '@inkjs/ui';
-import {ThinkingStream} from './ui/ThinkingStream.js';
-import {OutputDisplay} from './ui/OutputDisplay.js';
-import {InputPrompt} from './ui/InputPrompt.js';
-import {OpenAIClient} from './api/openai.js';
+import {ThinkingStream} from './ui/thinking-stream.js';
+import {OutputDisplay} from './ui/output-display.js';
+import {InputPrompt} from './ui/input-prompt.js';
+import {OpenAiClient} from './api/openai.js';
 import {
 	readInputFile,
 	writeOutputFile,
 	writeConversationToFile,
 } from './utils/files.js';
-import type {CliArgs, StreamingState, ChatMessage} from './types.js';
+import type {
+	CliArgs,
+	StreamingState,
+	ChatMessage,
+	ResponseStreamEvent,
+} from './types.js';
 
 type AppProps = {
 	args: CliArgs;
@@ -61,7 +66,7 @@ export default function App({args, apiKey}: AppProps) {
 		setConversationHistory,
 	} = streamingHooks;
 
-	const openaiClient = new OpenAIClient(apiKey);
+	const openaiClient = new OpenAiClient(apiKey);
 
 	const shouldSaveStreamingUpdate = (
 		streamingSaveCounter: number,
@@ -96,7 +101,7 @@ export default function App({args, apiKey}: AppProps) {
 	};
 
 	const handleStreamEvent = async (
-		event: any,
+		event: ResponseStreamEvent,
 		streamData: {
 			finalOutputContent: string;
 			streamingSaveCounter: number;
@@ -117,23 +122,27 @@ export default function App({args, apiKey}: AppProps) {
 				setStreamingState('created');
 				break;
 			}
+
 			case 'in_progress': {
 				setStreamingState('in_progress');
 				break;
 			}
+
 			case 'thinking': {
 				setStreamingState('thinking');
 				if (event.delta) {
-					setThinkingContent(prev => prev + event.delta);
+					setThinkingContent(previous => previous + event.delta);
 				}
+
 				break;
 			}
+
 			case 'output': {
 				setStreamingState('responding');
 				if (event.delta) {
 					const newFinalContent = finalOutputContent + event.delta;
 					setFinalOutputContent(newFinalContent);
-					setOutputContent(prev => prev + event.delta);
+					setOutputContent(previous => previous + event.delta);
 
 					const newCounter = streamingSaveCounter + event.delta.length;
 					setStreamingSaveCounter(newCounter);
@@ -143,26 +152,29 @@ export default function App({args, apiKey}: AppProps) {
 						await saveStreamingUpdate(newFinalContent, userMessage);
 					}
 				}
+
 				break;
 			}
+
 			case 'tool_use': {
 				setToolStatus(
-					`${event.toolName}: ${event.toolStatus} - ${event.content || ''}`,
+					`${event.toolName}: ${event.toolStatus} - ${event.content ?? ''}`,
 				);
 				break;
 			}
+
 			case 'complete': {
-				return await handleCompletion(finalOutputContent, userMessage);
+				await handleCompletion(finalOutputContent, userMessage);
+				return;
 			}
+
 			case 'error': {
 				setStreamingState('error');
-				setError(event.content || 'Unknown error occurred');
-				if (args.request || args.requestFile) {
+				setError(event.content ?? 'Unknown error occurred');
+				if (args.request ?? args.requestFile) {
 					exit();
 				}
-				break;
-			}
-			default: {
+
 				break;
 			}
 		}
@@ -188,13 +200,12 @@ export default function App({args, apiKey}: AppProps) {
 		setConversationHistory(updatedHistory);
 
 		if (args.outputFile) {
-			if (!args.request && !args.requestFile) {
-				await writeConversationToFile(args.outputFile, updatedHistory, false);
-			} else {
-				await writeOutputFile(args.outputFile, finalOutputContent);
-			}
+			await (!args.request && !args.requestFile
+				? writeConversationToFile(args.outputFile, updatedHistory, false)
+				: writeOutputFile(args.outputFile, finalOutputContent));
 		}
-		if (args.request || args.requestFile) {
+
+		if (args.request ?? args.requestFile) {
 			exit();
 		}
 	};
@@ -211,7 +222,7 @@ export default function App({args, apiKey}: AppProps) {
 			content: input,
 			timestamp: new Date(),
 		};
-		setConversationHistory(prev => [...prev, userMessage]);
+		setConversationHistory(previous => [...previous, userMessage]);
 
 		let finalOutputContent = '';
 		let streamingSaveCounter = 0;
@@ -223,7 +234,7 @@ export default function App({args, apiKey}: AppProps) {
 
 		try {
 			const generator = openaiClient.streamResponse(
-				args.model || 'gpt-5',
+				args.model ?? 'gpt-5',
 				input,
 				conversationHistory,
 			);
@@ -245,10 +256,10 @@ export default function App({args, apiKey}: AppProps) {
 					setStreamingSaveCounter,
 				});
 			}
-		} catch (err) {
+		} catch (error_) {
 			setStreamingState('error');
-			setError(err instanceof Error ? err.message : 'Unknown error');
-			if (args.request || args.requestFile) {
+			setError(error_ instanceof Error ? error_.message : 'Unknown error');
+			if (args.request ?? args.requestFile) {
 				exit();
 			}
 		}
@@ -264,8 +275,10 @@ export default function App({args, apiKey}: AppProps) {
 			} else if (args.requestFile) {
 				try {
 					input = await readInputFile(args.requestFile);
-				} catch (err) {
-					setError(err instanceof Error ? err.message : 'Failed to read file');
+				} catch (error_) {
+					setError(
+						error_ instanceof Error ? error_.message : 'Failed to read file',
+					);
 					return;
 				}
 			}
@@ -275,11 +288,11 @@ export default function App({args, apiKey}: AppProps) {
 			}
 		};
 
-		handleInitialRequest();
+		void handleInitialRequest();
 	}, []);
 
 	const handleSubmit = (value: string) => {
-		processRequest(value);
+		void processRequest(value);
 	};
 
 	const isInteractive = !args.request && !args.requestFile;
@@ -288,7 +301,7 @@ export default function App({args, apiKey}: AppProps) {
 		<Box flexDirection="column" paddingY={1}>
 			<Box marginBottom={1}>
 				<Text bold color="cyan">
-					🔬 Deep Research CLI - Model: {args.model || 'o3-deep-research'}
+					🔬 Deep Research CLI - Model: {args.model ?? 'o3-deep-research'}
 				</Text>
 			</Box>
 

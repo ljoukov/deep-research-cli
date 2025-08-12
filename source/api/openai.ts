@@ -1,12 +1,12 @@
 import OpenAI from 'openai';
-import type {ResponseStreamEvent, ChatMessage} from '../types.js';
 import type {
 	ResponseInput,
 	EasyInputMessage,
 } from 'openai/resources/responses/responses.js';
+import type {ResponseStreamEvent, ChatMessage} from '../types.js';
 
-export class OpenAIClient {
-	private client: OpenAI;
+export class OpenAiClient {
+	private readonly client: OpenAI;
 
 	constructor(apiKey: string) {
 		this.client = new OpenAI({
@@ -24,20 +24,20 @@ export class OpenAIClient {
 			// Build properly typed conversation input
 			const messages: ResponseInput = [
 				...conversationHistory.map(
-					msg =>
+					message =>
 						({
-							role: msg.role,
-							content: msg.content,
-						}) as EasyInputMessage,
+							role: message.role,
+							content: message.content,
+						}) satisfies EasyInputMessage,
 				),
 				{
 					role: 'user' as const,
 					content: input,
-				} as EasyInputMessage,
+				} satisfies EasyInputMessage,
 			];
 
 			const stream = await this.client.responses.create({
-				model: model,
+				model,
 				input: messages,
 				stream: true,
 				reasoning: {summary: 'detailed'},
@@ -46,6 +46,7 @@ export class OpenAIClient {
 
 			for await (const event of stream) {
 				// Handle incremental text content
+				// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
 				switch (event.type) {
 					// Connection and initialization events
 					case 'response.created': {
@@ -59,6 +60,7 @@ export class OpenAIClient {
 						yield streamEvent;
 						break;
 					}
+
 					case 'response.in_progress': {
 						const streamEvent: ResponseStreamEvent = {
 							type: 'in_progress',
@@ -69,6 +71,7 @@ export class OpenAIClient {
 						yield streamEvent;
 						break;
 					}
+
 					// Reasoning/thinking events
 					case 'response.output_item.added': {
 						// New reasoning item started
@@ -80,12 +83,15 @@ export class OpenAIClient {
 							onEvent?.(streamEvent);
 							yield streamEvent;
 						}
+
 						break;
 					}
+
 					case 'response.reasoning_summary_part.added': {
 						// New summary part added
 						break;
 					}
+
 					case 'response.reasoning_summary_text.delta': {
 						const streamEvent: ResponseStreamEvent = {
 							type: 'thinking',
@@ -95,10 +101,12 @@ export class OpenAIClient {
 						yield streamEvent;
 						break;
 					}
+
 					case 'response.reasoning_summary_text.done': {
 						// Thinking section is complete
 						break;
 					}
+
 					// Regular output events
 					case 'response.output_text.delta': {
 						const streamEvent: ResponseStreamEvent = {
@@ -109,14 +117,16 @@ export class OpenAIClient {
 						yield streamEvent;
 						break;
 					}
+
 					case 'response.completed': {
 						yield {
 							type: 'complete',
 						};
 						break;
 					}
+
 					default: {
-						// Uncomment if need to debug
+						// Uncomment if need to debug unhandled event types
 						// console.log('Unhandled event type:', event.type, event);
 						break;
 					}
