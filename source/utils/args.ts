@@ -8,7 +8,7 @@ export function parseArgs(): CliArgs {
 			type: 'string',
 			choices: ['o3', 'o3-deep-research', 'o3-pro', 'gpt-5'],
 			description: 'Model to use for the response',
-			default: 'o3-deep-research',
+			default: 'gpt-5',
 		})
 		.option('request', {
 			type: 'string',
