@@ -6,7 +6,7 @@ export function parseArgs(): CliArgs {
 	const argv = yargs(hideBin(process.argv))
 		.option('model', {
 			type: 'string',
-			choices: ['o3', 'o3-deep-research', 'o3-pro', 'gpt-5'],
+			choices: ['o3', 'o3-deep-research', 'o3-pro', 'gpt-5', 'gpt-5-mini'],
 			description: 'Model to use for the response',
 			default: 'gpt-5',
 		})
