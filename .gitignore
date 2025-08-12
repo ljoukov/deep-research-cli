@@ -4,3 +4,4 @@ dist
 .env
 
 response-debug.md
+logs-*
