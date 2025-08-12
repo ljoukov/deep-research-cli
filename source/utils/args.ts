@@ -1,0 +1,35 @@
+import yargs from 'yargs';
+import {hideBin} from 'yargs/helpers';
+import type {CliArgs} from '../types.js';
+
+export function parseArgs(): CliArgs {
+	const argv = yargs(hideBin(process.argv))
+		.option('model', {
+			type: 'string',
+			choices: ['o3', 'o3-deep-research', 'o3-pro', 'gpt-5'],
+			description: 'Model to use for the response',
+			default: 'o3-deep-research',
+		})
+		.option('request', {
+			type: 'string',
+			description: 'Direct request text',
+		})
+		.option('request-file', {
+			type: 'string',
+			description: 'Path to file containing the request',
+		})
+		.option('output-file', {
+			type: 'string',
+			description: 'Path to save the output',
+		})
+		.conflicts('request', 'request-file')
+		.help()
+		.parseSync();
+
+	return {
+		model: argv.model as CliArgs['model'],
+		request: argv.request,
+		requestFile: argv['request-file'],
+		outputFile: argv['output-file'],
+	};
+}
