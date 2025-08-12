@@ -139,41 +139,57 @@ export class OpenAiClient {
 		input: string,
 		conversationHistory: ChatMessage[] = [],
 	): AsyncGenerator<ResponseStreamEvent> {
+		const messages: ResponseInput = [
+			...conversationHistory.map(
+				message =>
+					({
+						role: message.role,
+						content: message.content,
+					}) satisfies EasyInputMessage,
+			),
+			{
+				role: 'user' as const,
+				content: input,
+			} satisfies EasyInputMessage,
+		];
+
+		yield* this._streamHandler(model, messages, false);
+	}
+
+	async *continueStreamResponse(
+		model: string,
+		conversation: ChatMessage[],
+	): AsyncGenerator<ResponseStreamEvent> {
+		const messages: ResponseInput = conversation.map(
+			msg =>
+				({
+					role: msg.role,
+					content: msg.content,
+				}) satisfies EasyInputMessage,
+		);
+
+		yield* this._streamHandler(model, messages, true);
+	}
+
+	private async *_streamHandler(
+		model: string,
+		messages: ResponseInput,
+		isContinuation: boolean,
+	): AsyncGenerator<ResponseStreamEvent> {
 		const metrics: StreamMetrics = {
 			startTime: Date.now(),
 			urlFetches: [],
 		};
-
 		let responseUsage: ResponseUsage | null = null;
 
 		try {
-			// Build properly typed conversation input
-			let messages: ResponseInput = [
-				...conversationHistory.map(
-					message =>
-						({
-							role: message.role,
-							content: message.content,
-						}) satisfies EasyInputMessage,
-				),
-				{
-					role: 'user' as const,
-					content: input,
-				} satisfies EasyInputMessage,
-			];
-
-			// Track tool calls and their results for continuation
 			const toolCallResults: Array<{
 				toolName: string;
 				args: any;
 				result: string;
 				results: UrlFetchResult[];
 			}> = [];
-
-			// Flag to track if we need to continue after tool calls
 			let needsContinuation = false;
-
-			// Store requested URLs for logging
 			let requestedUrls: string[] = [];
 
 			const fetchUrlsTool: Tool = {
@@ -186,9 +202,7 @@ export class OpenAiClient {
 					properties: {
 						urls: {
 							type: 'array',
-							items: {
-								type: 'string',
-							},
+							items: {type: 'string'},
 							description: 'Array of URLs to fetch content from',
 						},
 					},
@@ -202,6 +216,7 @@ export class OpenAiClient {
 			if (model !== 'o3-deep-research') {
 				tools.push(fetchUrlsTool);
 			}
+
 			const stream = await this.client.responses.create({
 				model,
 				input: messages,
@@ -211,211 +226,143 @@ export class OpenAiClient {
 			});
 
 			for await (const event of stream) {
-				// Handle incremental text content
-				// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
 				switch (event.type) {
-					// Connection and initialization events
-					case 'response.created': {
-						const streamEvent: ResponseStreamEvent = {
-							type: 'created',
-							responseId: event.response?.id,
-							model: event.response?.model,
-							content: 'Response created',
-						};
-
-						yield streamEvent;
-						break;
-					}
-
-					case 'response.in_progress': {
-						const streamEvent: ResponseStreamEvent = {
-							type: 'in_progress',
-							responseId: event.response?.id,
-							content: 'Response in progress',
-						};
-
-						yield streamEvent;
-						break;
-					}
-
-					// Reasoning/thinking events
-					case 'response.output_item.added': {
-						// New reasoning item started
-						if (event.item?.type === 'reasoning') {
-							const streamEvent: ResponseStreamEvent = {
-								type: 'thinking',
-								content: '',
+					case 'response.created':
+						if (!isContinuation) {
+							yield {
+								type: 'created',
+								responseId: event.response?.id,
+								model: event.response?.model,
+								content: 'Response created',
 							};
-
-							yield streamEvent;
 						}
-
 						break;
-					}
 
-					case 'response.reasoning_summary_part.added': {
-						const streamEvent: ResponseStreamEvent = {
-							type: 'thinking',
-							delta: '\n\n',
-						};
-
-						yield streamEvent;
+					case 'response.in_progress':
+						if (!isContinuation) {
+							yield {
+								type: 'in_progress',
+								responseId: event.response?.id,
+								content: 'Response in progress',
+							};
+						}
 						break;
-					}
 
-					case 'response.reasoning_summary_text.delta': {
-						const streamEvent: ResponseStreamEvent = {
-							type: 'thinking',
-							delta: event.delta,
-						};
-
-						yield streamEvent;
+					case 'response.output_item.added':
+						if (event.item?.type === 'reasoning') {
+							yield {type: 'thinking', content: ''};
+						}
 						break;
-					}
 
-					case 'response.reasoning_summary_text.done': {
-						// Thinking section is complete
+					case 'response.reasoning_summary_part.added':
+						yield {type: 'thinking', delta: '\n\n'};
 						break;
-					}
 
-					// Regular output events
-					case 'response.output_text.delta': {
-						const streamEvent: ResponseStreamEvent = {
-							type: 'output',
-							delta: event.delta,
-						};
-
-						yield streamEvent;
+					case 'response.reasoning_summary_text.delta':
+						yield {type: 'thinking', delta: event.delta};
 						break;
-					}
 
-					// Function tool call events
-					case 'response.function_call_arguments.delta': {
-						const streamEvent: ResponseStreamEvent = {
-							type: 'tool_use',
-							toolName: 'fetch_urls',
-							toolStatus: 'processing',
-							delta: event.delta,
-						};
-
-						yield streamEvent;
+					case 'response.reasoning_summary_text.done':
 						break;
-					}
 
-					case 'response.function_call_arguments.done': {
-						// Function call arguments are complete, execute the function
-						// The event has arguments but no function name/id in this event type
-						// We'll assume this is for our fetch_urls function since it's the only one we defined
-						const streamEvent: ResponseStreamEvent = {
-							type: 'tool_use',
-							toolName: 'fetch_urls',
-							toolStatus: 'executing',
-							content: 'Fetching URLs...',
-						};
+					case 'response.output_text.delta':
+						yield {type: 'output', delta: event.delta};
+						break;
 
-						yield streamEvent;
+					case 'response.function_call_arguments.delta':
+						if (!isContinuation) {
+							yield {
+								type: 'tool_use',
+								toolName: 'fetch_urls',
+								toolStatus: 'processing',
+								delta: event.delta,
+							};
+						}
+						break;
 
-						try {
-							// Parse arguments and execute function
-							const args = JSON.parse(event.arguments || '{}');
-							const urls = args.urls || [];
-
-							const urlsPreview =
-								urls.join(', ').slice(0, 100) +
-								(urls.join(', ').length > 100 ? '...' : '');
-							const streamEvent: ResponseStreamEvent = {
+					case 'response.function_call_arguments.done':
+						if (!isContinuation) {
+							yield {
 								type: 'tool_use',
 								toolName: 'fetch_urls',
 								toolStatus: 'executing',
-								content: `Fetching ${urls.length} URL(s): ${urlsPreview}`,
+								content: 'Fetching URLs...',
 							};
 
-							yield streamEvent;
+							try {
+								const args = JSON.parse(event.arguments || '{}');
+								const urls = args.urls || [];
+								const urlsPreview =
+									urls.join(', ').slice(0, 100) +
+									(urls.join(', ').length > 100 ? '...' : '');
+								yield {
+									type: 'tool_use',
+									toolName: 'fetch_urls',
+									toolStatus: 'executing',
+									content: `Fetching ${urls.length} URL(s): ${urlsPreview}`,
+								};
 
-							// Store requested URLs for logging
-							requestedUrls = urls;
+								requestedUrls = urls;
+								const fetchResult = await this.fetchUrls(urls);
+								const urlMetrics = fetchResult.results.map(r => ({
+									url: r.url,
+									startTime: 0,
+									endTime: 0,
+									sizeBytes: r.metrics.sizeBytes,
+								}));
+								metrics.urlFetches = [
+									...(metrics.urlFetches || []),
+									...urlMetrics,
+								];
 
-							const fetchResult = await this.fetchUrls(urls);
+								toolCallResults.push({
+									toolName: 'fetch_urls',
+									args,
+									result: fetchResult.combinedContent,
+									results: fetchResult.results,
+								});
+								needsContinuation = true;
 
-							// Add URL metrics to overall metrics
-							const urlMetrics = fetchResult.results.map(r => ({
-								url: r.url,
-								startTime: 0, // These are calculated in fetchUrls now
-								endTime: 0,
-								sizeBytes: r.metrics.sizeBytes,
-							}));
-							metrics.urlFetches = [
-								...(metrics.urlFetches || []),
-								...urlMetrics,
-							];
-
-							// Store the tool call result for continuation
-							toolCallResults.push({
-								toolName: 'fetch_urls',
-								args,
-								result: fetchResult.combinedContent,
-								results: fetchResult.results,
-							});
-
-							// Mark that we need continuation
-							needsContinuation = true;
-
-							// Create completion status event with metrics
-							const completedEvent: ResponseStreamEvent = {
-								type: 'tool_use',
-								toolName: 'fetch_urls',
-								toolStatus: 'completed',
-								content: `Fetched ${urls.length} URL(s) - ${fetchResult.combinedContent.length} chars: ${urlsPreview}`,
-								urlMetrics,
-							};
-
-							yield completedEvent;
-						} catch (error) {
-							const errorEvent: ResponseStreamEvent = {
-								type: 'tool_use',
-								toolName: 'fetch_urls',
-								toolStatus: 'error',
-								content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-							};
-
-							yield errorEvent;
+								yield {
+									type: 'tool_use',
+									toolName: 'fetch_urls',
+									toolStatus: 'completed',
+									content: `Fetched ${urls.length} URL(s) - ${fetchResult.combinedContent.length} chars: ${urlsPreview}`,
+									urlMetrics,
+								};
+							} catch (error) {
+								yield {
+									type: 'tool_use',
+									toolName: 'fetch_urls',
+									toolStatus: 'error',
+									content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+								};
+							}
 						}
 						break;
-					}
 
-					case 'response.completed': {
-						// Extract usage information
+					case 'response.completed':
 						if (event.response?.usage) {
 							responseUsage = event.response.usage as ResponseUsage;
 						}
 
-						// Don't yield complete yet if we need to continue with tool results
 						if (!needsContinuation) {
 							metrics.endTime = Date.now();
 							const finalUsage = calculateUsage(model, responseUsage);
 							metrics.usage = finalUsage;
-
-							yield {
-								type: 'complete',
-								usage: finalUsage,
-							};
+							yield {type: 'complete', usage: finalUsage};
 						}
 						break;
-					}
 
-					default: {
-						// Uncomment if need to debug unhandled event types
-						// console.log('Unhandled event type:', event.type, event);
+					default:
 						break;
-					}
 				}
 			}
 
-			// If tools were called, yield a continuation event
 			if (needsContinuation && toolCallResults.length > 0) {
 				const toolResult = toolCallResults[0];
 				if (toolResult) {
-					const continuationEvent: ResponseStreamEvent = {
+					yield {
 						type: 'tool_continuation',
 						toolName: toolResult.toolName,
 						toolResult: toolResult.result,
@@ -424,121 +371,14 @@ export class OpenAiClient {
 						urlFetchResults: toolResult.results,
 						usage: calculateUsage(model, responseUsage),
 					};
-					yield continuationEvent;
 				}
 			}
 		} catch (error) {
-			const streamEvent: ResponseStreamEvent = {
+			yield {
 				type: 'error',
 				content: error instanceof Error ? error.message : 'Unknown error',
 				error: error instanceof Error ? error : new Error(String(error)),
 			};
-			yield streamEvent;
-		}
-	}
-
-	async *continueStreamResponse(
-		model: string,
-		conversation: ChatMessage[],
-	): AsyncGenerator<ResponseStreamEvent> {
-		let responseUsage: ResponseUsage | null = null;
-
-		try {
-			const messages: ResponseInput = conversation.map(
-				msg =>
-					({
-						role: msg.role,
-						content: msg.content,
-					}) satisfies EasyInputMessage,
-			);
-			const webSearchTool: Tool = {type: 'web_search_preview'};
-			const fetchUrlsTool: Tool = {
-				type: 'function',
-				name: 'fetch_urls',
-				description:
-					'Fetch content from one or more URLs and return them in markdown format',
-				parameters: {
-					type: 'object',
-					properties: {
-						urls: {
-							type: 'array',
-							items: {
-								type: 'string',
-							},
-							description: 'Array of URLs to fetch content from',
-						},
-					},
-					required: ['urls'],
-					additionalProperties: false,
-				},
-				strict: true,
-			};
-			const tools: Tool[] = [webSearchTool];
-			if (model !== 'o3-deep-research') {
-				tools.push(fetchUrlsTool);
-			}
-			const stream = await this.client.responses.create({
-				model,
-				input: messages,
-				stream: true,
-				reasoning: {summary: 'detailed'},
-				tools,
-			});
-
-			for await (const event of stream) {
-				// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-				switch (event.type) {
-					case 'response.created':
-					case 'response.in_progress':
-						// We can ignore these in continuation
-						break;
-
-					case 'response.output_item.added': {
-						if (event.item?.type === 'reasoning') {
-							yield {type: 'thinking', content: ''};
-						}
-						break;
-					}
-
-					case 'response.reasoning_summary_part.added': {
-						const streamEvent: ResponseStreamEvent = {
-							type: 'thinking',
-							delta: '\n\n',
-						};
-
-						yield streamEvent;
-						break;
-					}
-
-					case 'response.reasoning_summary_text.delta': {
-						yield {type: 'thinking', delta: event.delta};
-						break;
-					}
-
-					case 'response.output_text.delta': {
-						yield {type: 'output', delta: event.delta};
-						break;
-					}
-
-					case 'response.completed': {
-						if (event.response?.usage) {
-							responseUsage = event.response.usage as ResponseUsage;
-						}
-						yield {
-							type: 'complete',
-							usage: calculateUsage(model, responseUsage),
-						};
-						break;
-					}
-				}
-			}
-		} catch (error) {
-			const streamEvent: ResponseStreamEvent = {
-				type: 'error',
-				content: error instanceof Error ? error.message : 'Unknown error',
-				error: error instanceof Error ? error : new Error(String(error)),
-			};
-			yield streamEvent;
 		}
 	}
 }
