@@ -1,5 +1,9 @@
 import OpenAI from 'openai';
-import type {ResponseStreamEvent} from '../types.js';
+import type {ResponseStreamEvent, ChatMessage} from '../types.js';
+import type {
+	ResponseInput,
+	EasyInputMessage,
+} from 'openai/resources/responses/responses.js';
 
 export class OpenAIClient {
 	private client: OpenAI;
@@ -13,66 +17,51 @@ export class OpenAIClient {
 	async *streamResponse(
 		model: string,
 		input: string,
+		conversationHistory: ChatMessage[] = [],
 		onEvent?: (event: ResponseStreamEvent) => void,
 	): AsyncGenerator<ResponseStreamEvent> {
 		try {
-			const runner = (this.client.responses as any).stream({
-				model,
-				input,
-				text: {},
-				reasoning: {summary: 'auto'},
+			// Build properly typed conversation input
+			const messages: ResponseInput = [
+				...conversationHistory.map(
+					msg =>
+						({
+							role: msg.role,
+							content: msg.content,
+						}) as EasyInputMessage,
+				),
+				{
+					role: 'user' as const,
+					content: input,
+				} as EasyInputMessage,
+			];
+
+			const stream = await this.client.responses.create({
+				model: model,
+				input: messages,
+				stream: true,
+				reasoning: {summary: 'detailed'},
 				tools: [{type: 'web_search_preview'}],
 			});
 
-			// Listen to events
-			runner.on('response.reasoning_text.delta', (diff: any) => {
-				const streamEvent: ResponseStreamEvent = {
-					type: 'thinking',
-					delta: diff.delta,
-				};
-				onEvent?.(streamEvent);
-			});
-
-			runner.on('response.output_text.delta', (diff: any) => {
-				const streamEvent: ResponseStreamEvent = {
-					type: 'output',
-					delta: diff.delta,
-				};
-				onEvent?.(streamEvent);
-			});
-
-			for await (const event of runner) {
-				// Handle different event types from the Responses API
-				const eventType = event.type || event.event;
-
-				if (eventType === 'response.reasoning_text.delta') {
-					yield {
-						type: 'thinking',
-						delta: (event as any).delta,
-					};
-				} else if (eventType === 'response.output_text.delta') {
-					yield {
-						type: 'output',
-						delta: (event as any).delta,
-					};
-				} else if (eventType === 'response.web_search_call.searching') {
-					yield {
-						type: 'tool_use',
-						toolName: 'web_search',
-						toolStatus: 'searching',
-						content: 'Searching the web...',
-					};
-				} else if (eventType === 'response.web_search_call.completed') {
-					yield {
-						type: 'tool_use',
-						toolName: 'web_search',
-						toolStatus: 'completed',
-						content: 'Web search completed',
-					};
-				} else if (eventType === 'response.completed') {
-					yield {
-						type: 'complete',
-					};
+			for await (const event of stream) {
+				// Handle incremental text content
+				switch (event.type) {
+					case 'response.output_text.delta': {
+						const streamEvent: ResponseStreamEvent = {
+							type: 'output',
+							delta: event.delta,
+						};
+						onEvent?.(streamEvent);
+						yield streamEvent;
+						break;
+					}
+					case 'response.completed': {
+						yield {
+							type: 'complete',
+						};
+						break;
+					}
 				}
 			}
 		} catch (error) {

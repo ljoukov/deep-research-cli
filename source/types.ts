@@ -5,6 +5,12 @@ export interface CliArgs {
 	outputFile?: string;
 }
 
+export interface ChatMessage {
+	role: 'user' | 'assistant';
+	content: string;
+	timestamp: Date;
+}
+
 export interface ResponseStreamEvent {
 	type: 'thinking' | 'output' | 'tool_use' | 'error' | 'complete';
 	content?: string;

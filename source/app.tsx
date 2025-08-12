@@ -1,12 +1,12 @@
-import React, {useState, useEffect} from 'react';
+import {useState, useEffect} from 'react';
 import {Box, Text, useApp} from 'ink';
 import {Spinner} from '@inkjs/ui';
 import {ThinkingStream} from './ui/ThinkingStream.js';
 import {OutputDisplay} from './ui/OutputDisplay.js';
 import {InputPrompt} from './ui/InputPrompt.js';
 import {OpenAIClient} from './api/openai.js';
-import {readInputFile, writeOutputFile} from './utils/files.js';
-import type {CliArgs, StreamingState} from './types.js';
+import {readInputFile, writeOutputFile, writeConversationToFile} from './utils/files.js';
+import type {CliArgs, StreamingState, ChatMessage} from './types.js';
 
 interface AppProps {
 	args: CliArgs;
@@ -20,6 +20,7 @@ export default function App({args, apiKey}: AppProps) {
 	const [outputContent, setOutputContent] = useState('');
 	const [error, setError] = useState<string | null>(null);
 	const [toolStatus, setToolStatus] = useState<string | null>(null);
+	const [conversationHistory, setConversationHistory] = useState<ChatMessage[]>([]);
 
 	const openaiClient = new OpenAIClient(apiKey);
 
@@ -30,10 +31,29 @@ export default function App({args, apiKey}: AppProps) {
 		setError(null);
 		setToolStatus(null);
 
+		// Add user message to conversation history
+		const userMessage: ChatMessage = {
+			role: 'user',
+			content: input,
+			timestamp: new Date(),
+		};
+		setConversationHistory(prev => [...prev, userMessage]);
+
+		let finalOutputContent = '';
+		let streamingSaveCounter = 0;
+		const STREAMING_SAVE_THRESHOLD = 100; // Save every 100 bytes
+
+		// Save immediately after user input if output file is specified
+		if (args.outputFile && (!args.request && !args.requestFile)) {
+			const initialHistory = [...conversationHistory, userMessage];
+			await writeConversationToFile(args.outputFile, initialHistory);
+		}
+
 		try {
 			const generator = openaiClient.streamResponse(
-				args.model || 'o3-deep-research',
+				args.model || 'gpt-5',
 				input,
+				conversationHistory,
 			);
 
 			for await (const event of generator) {
@@ -47,7 +67,21 @@ export default function App({args, apiKey}: AppProps) {
 					case 'output':
 						setStreamingState('responding');
 						if (event.delta) {
+							finalOutputContent += event.delta;
 							setOutputContent(prev => prev + event.delta);
+							
+							// Save streaming updates to file periodically
+							streamingSaveCounter += event.delta.length;
+							if (args.outputFile && (!args.request && !args.requestFile) && streamingSaveCounter >= STREAMING_SAVE_THRESHOLD) {
+								streamingSaveCounter = 0;
+								const streamingAssistantMessage: ChatMessage = {
+									role: 'assistant',
+									content: finalOutputContent,
+									timestamp: new Date(),
+								};
+								const streamingHistory = [...conversationHistory, userMessage, streamingAssistantMessage];
+								await writeConversationToFile(args.outputFile, streamingHistory, true);
+							}
 						}
 						break;
 					case 'tool_use':
@@ -57,8 +91,24 @@ export default function App({args, apiKey}: AppProps) {
 						break;
 					case 'complete':
 						setStreamingState('complete');
+						
+						// Add assistant message to conversation history with accumulated content
+						const assistantMessage: ChatMessage = {
+							role: 'assistant',
+							content: finalOutputContent,
+							timestamp: new Date(),
+						};
+						
+						const updatedHistory = [...conversationHistory, userMessage, assistantMessage];
+						setConversationHistory(updatedHistory);
+						
 						if (args.outputFile) {
-							await writeOutputFile(args.outputFile, outputContent);
+							// Write conversation history to file if in interactive mode
+							if (!args.request && !args.requestFile) {
+								await writeConversationToFile(args.outputFile, updatedHistory, false);
+							} else {
+								await writeOutputFile(args.outputFile, finalOutputContent);
+							}
 						}
 						if (args.request || args.requestFile) {
 							// Non-interactive mode, exit after completion
