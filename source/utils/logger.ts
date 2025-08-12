@@ -257,25 +257,32 @@ export class SessionLogger {
 			this.currentMetrics.duration = duration;
 
 			if (usage) {
+				const promptTokens = usage.prompt_tokens ?? 0;
+				const completionTokens = usage.completion_tokens ?? 0;
+				const cachedTokens = usage.cached_tokens ?? 0;
+				const thinkingTokens = usage.thinking_tokens ?? 0;
+				const totalTokens = usage.total_tokens ?? 0;
+				const cost = usage.cost ?? 0;
+
 				this.currentMetrics.usage = {
-					inputTokens: usage.promptTokens,
-					outputTokens: usage.completionTokens,
-					cachedTokens: usage.cachedTokens ?? 0,
-					thinkingTokens: usage.thinkingTokens ?? 0,
-					totalTokens: usage.totalTokens,
+					inputTokens: promptTokens,
+					outputTokens: completionTokens,
+					cachedTokens,
+					thinkingTokens,
+					totalTokens,
 					cost: {
 						input: 0,
 						output: 0,
-						total: usage.cost ?? 0,
+						total: cost,
 					},
 				};
 
 				// Update cumulative
-				this.cumulativeMetrics.totalInputTokens += usage.promptTokens;
-				this.cumulativeMetrics.totalOutputTokens += usage.completionTokens;
-				this.cumulativeMetrics.totalCachedTokens += usage.cachedTokens ?? 0;
-				this.cumulativeMetrics.totalThinkingTokens += usage.thinkingTokens ?? 0;
-				this.cumulativeMetrics.totalCost += usage.cost ?? 0;
+				this.cumulativeMetrics.totalInputTokens += promptTokens;
+				this.cumulativeMetrics.totalOutputTokens += completionTokens;
+				this.cumulativeMetrics.totalCachedTokens += cachedTokens;
+				this.cumulativeMetrics.totalThinkingTokens += thinkingTokens;
+				this.cumulativeMetrics.totalCost += cost;
 			}
 		}
 	}
@@ -416,7 +423,9 @@ export class SessionLogger {
 
 		const totalTokens =
 			this.cumulativeMetrics.totalInputTokens +
-			this.cumulativeMetrics.totalOutputTokens;
+			this.cumulativeMetrics.totalOutputTokens +
+			this.cumulativeMetrics.totalCachedTokens +
+			this.cumulativeMetrics.totalThinkingTokens;
 		content += `**Total Tokens:** ${totalTokens.toLocaleString()}\n`;
 		content += `- Input: ${this.cumulativeMetrics.totalInputTokens.toLocaleString()}\n`;
 		content += `- Output: ${this.cumulativeMetrics.totalOutputTokens.toLocaleString()}\n`;

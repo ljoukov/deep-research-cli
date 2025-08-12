@@ -16,6 +16,7 @@ import type {
 	StreamingState,
 	ChatMessage,
 	ResponseStreamEvent,
+	Usage,
 } from './types.js';
 
 type AppProps = {
@@ -329,7 +330,7 @@ export default function App({args, apiKey}: AppProps) {
 		let finalThinkingContent = '';
 		let streamingSaveCounter = 0;
 		let requestedUrls: string[] = [];
-		let usage: any = undefined;
+		let usage: Usage | undefined;
 		const startTime = Date.now();
 
 		// Start logging
