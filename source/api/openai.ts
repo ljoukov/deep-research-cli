@@ -227,7 +227,7 @@ export class OpenAiClient {
 				model,
 				input: messages,
 				stream: true,
-				reasoning: {summary: 'detailed'},
+				reasoning: {summary: 'detailed', effort: 'high'},
 				tools,
 			});
 
