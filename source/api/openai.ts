@@ -216,7 +216,7 @@ export class OpenAiClient {
 								type: 'tool_use',
 								toolName: 'fetch_urls',
 								toolStatus: 'completed',
-								content: `Fetched ${urls.length} URL(s) - ${result.length} chars`,
+								content: `Fetched ${urls.length} URL(s) - ${result.length} chars: ${urlsPreview}`,
 							};
 							onEvent?.(completedEvent);
 							yield completedEvent;
