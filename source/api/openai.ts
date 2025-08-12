@@ -14,6 +14,25 @@ export class OpenAiClient {
 		});
 	}
 
+	private async fetchUrls(urls: string[]): Promise<string> {
+		const fetchPromises = urls.map(async url => {
+			try {
+				const jinaUrl = `https://r.jina.ai/${url}`;
+				const response = await fetch(jinaUrl);
+				if (!response.ok) {
+					return `Error fetching ${url}: ${response.status} ${response.statusText}`;
+				}
+				const content = await response.text();
+				return `# Content from ${url}\n\n${content}`;
+			} catch (error) {
+				return `Error fetching ${url}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+			}
+		});
+
+		const results = await Promise.all(fetchPromises);
+		return results.join('\n\n---\n\n');
+	}
+
 	async *streamResponse(
 		model: string,
 		input: string,
@@ -36,12 +55,41 @@ export class OpenAiClient {
 				} satisfies EasyInputMessage,
 			];
 
+			let pendingFunctionCall: {
+				id: string;
+				name: string;
+				arguments: string;
+			} | null = null;
+
 			const stream = await this.client.responses.create({
 				model,
 				input: messages,
 				stream: true,
 				reasoning: {summary: 'detailed'},
-				tools: [{type: 'web_search_preview'}],
+				tools: [
+					{type: 'web_search_preview'},
+					{
+						type: 'function',
+						name: 'fetch_urls',
+						description:
+							'Fetch content from one or more URLs and return them in markdown format',
+						parameters: {
+							type: 'object',
+							properties: {
+								urls: {
+									type: 'array',
+									items: {
+										type: 'string',
+									},
+									description: 'Array of URLs to fetch content from',
+								},
+							},
+							required: ['urls'],
+							additionalProperties: false,
+						},
+						strict: true,
+					},
+				],
 			});
 
 			for await (const event of stream) {
@@ -115,6 +163,73 @@ export class OpenAiClient {
 						};
 						onEvent?.(streamEvent);
 						yield streamEvent;
+						break;
+					}
+
+					// Function tool call events
+					case 'response.function_call_arguments.delta': {
+						const streamEvent: ResponseStreamEvent = {
+							type: 'tool_use',
+							toolName: 'fetch_urls',
+							toolStatus: 'processing',
+							delta: event.delta,
+						};
+						onEvent?.(streamEvent);
+						yield streamEvent;
+						break;
+					}
+
+					case 'response.function_call_arguments.done': {
+						// Function call arguments are complete, execute the function
+						// The event has arguments but no function name/id in this event type
+						// We'll assume this is for our fetch_urls function since it's the only one we defined
+						const streamEvent: ResponseStreamEvent = {
+							type: 'tool_use',
+							toolName: 'fetch_urls',
+							toolStatus: 'executing',
+							content: 'Fetching URLs...',
+						};
+						onEvent?.(streamEvent);
+						yield streamEvent;
+
+						try {
+							// Parse arguments and execute function
+							const args = JSON.parse(event.arguments || '{}');
+							const urls = args.urls || [];
+
+							const urlsPreview =
+								urls.join(', ').slice(0, 100) +
+								(urls.join(', ').length > 100 ? '...' : '');
+							const streamEvent: ResponseStreamEvent = {
+								type: 'tool_use',
+								toolName: 'fetch_urls',
+								toolStatus: 'executing',
+								content: `Fetching ${urls.length} URL(s): ${urlsPreview}`,
+							};
+							onEvent?.(streamEvent);
+							yield streamEvent;
+
+							const result = await this.fetchUrls(urls);
+
+							// Create completion status event
+							const completedEvent: ResponseStreamEvent = {
+								type: 'tool_use',
+								toolName: 'fetch_urls',
+								toolStatus: 'completed',
+								content: `Fetched ${urls.length} URL(s) - ${result.length} chars`,
+							};
+							onEvent?.(completedEvent);
+							yield completedEvent;
+						} catch (error) {
+							const errorEvent: ResponseStreamEvent = {
+								type: 'tool_use',
+								toolName: 'fetch_urls',
+								toolStatus: 'error',
+								content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+							};
+							onEvent?.(errorEvent);
+							yield errorEvent;
+						}
 						break;
 					}
 

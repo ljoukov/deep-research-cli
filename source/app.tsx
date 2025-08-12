@@ -22,7 +22,7 @@ type AppProps = {
 	apiKey: string;
 };
 
-const useStreamingLogic = (args: CliArgs, exit: () => void) => {
+const useStreamingLogic = () => {
 	const [streamingState, setStreamingState] = useState<StreamingState>('idle');
 	const [thinkingContent, setThinkingContent] = useState('');
 	const [outputContent, setOutputContent] = useState('');
@@ -50,7 +50,7 @@ const useStreamingLogic = (args: CliArgs, exit: () => void) => {
 
 export default function App({args, apiKey}: AppProps) {
 	const {exit} = useApp();
-	const streamingHooks = useStreamingLogic(args, exit);
+	const streamingHooks = useStreamingLogic();
 	const {
 		streamingState,
 		setStreamingState,
