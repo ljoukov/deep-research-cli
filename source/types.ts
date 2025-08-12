@@ -18,6 +18,7 @@ export type ResponseStreamEvent = {
 		| 'thinking'
 		| 'output'
 		| 'tool_use'
+		| 'tool_continuation'
 		| 'error'
 		| 'complete';
 	content?: string;
@@ -33,6 +34,20 @@ export type ResponseStreamEvent = {
 		endTime: number;
 		sizeBytes: number;
 	}>;
+	toolResult?: string;
+	requestedUrls?: string[];
+	urlFetchResults?: UrlFetchResult[];
+};
+
+export type UrlFetchResult = {
+	url: string;
+	content: string;
+	metrics: {
+		url: string;
+		latency: number;
+		sizeBytes: number;
+		sizeFormatted: string;
+	};
 };
 
 export type StreamingState =

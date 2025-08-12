@@ -8,6 +8,7 @@ import type {
 	ResponseStreamEvent,
 	ChatMessage,
 	StreamMetrics,
+	UrlFetchResult,
 } from '../types.js';
 
 export class OpenAiClient {
@@ -19,11 +20,11 @@ export class OpenAiClient {
 		});
 	}
 
-	private async fetchUrls(
-		urls: string[],
-		metrics: StreamMetrics,
-	): Promise<{content: string; urlMetrics: StreamMetrics['urlFetches']}> {
-		const urlMetrics: NonNullable<StreamMetrics['urlFetches']> = [];
+	private async fetchUrls(urls: string[]): Promise<{
+		combinedContent: string;
+		results: UrlFetchResult[];
+	}> {
+		const results: UrlFetchResult[] = [];
 
 		const fetchPromises = urls.map(async url => {
 			const startTime = Date.now();
@@ -31,44 +32,52 @@ export class OpenAiClient {
 				const jinaUrl = `https://r.jina.ai/${url}`;
 				const response = await fetch(jinaUrl);
 				const endTime = Date.now();
+				const latency = endTime - startTime;
 
 				if (!response.ok) {
-					urlMetrics.push({
+					const errorContent = `Error fetching ${url}: ${response.status} ${response.statusText}`;
+					results.push({
 						url,
-						startTime,
-						endTime,
-						sizeBytes: 0,
+						content: errorContent,
+						metrics: {url, latency, sizeBytes: 0, sizeFormatted: '0B'},
 					});
-					return `Error fetching ${url}: ${response.status} ${response.statusText}`;
+					return errorContent;
 				}
 
 				const content = await response.text();
 				const sizeBytes = new TextEncoder().encode(content).length;
+				const sizeFormatted =
+					sizeBytes < 1024
+						? `${sizeBytes}B`
+						: `${(sizeBytes / 1024).toFixed(1)}KB`;
 
-				urlMetrics.push({
+				results.push({
 					url,
-					startTime,
-					endTime,
-					sizeBytes,
+					content,
+					metrics: {url, latency, sizeBytes, sizeFormatted},
 				});
-
 				return `# Content from ${url}\n\n${content}`;
 			} catch (error) {
 				const endTime = Date.now();
-				urlMetrics.push({
+				const latency = endTime - startTime;
+				const errorContent = `Error fetching ${url}: ${
+					error instanceof Error ? error.message : 'Unknown error'
+				}`;
+				results.push({
 					url,
-					startTime,
-					endTime,
-					sizeBytes: 0,
+					content: errorContent,
+					metrics: {url, latency, sizeBytes: 0, sizeFormatted: '0B'},
 				});
-				return `Error fetching ${url}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+				return errorContent;
 			}
 		});
 
-		const results = await Promise.all(fetchPromises);
+		const individualContent = await Promise.all(fetchPromises);
+		const combinedContent = individualContent.join('\n\n---\n\n');
+
 		return {
-			content: results.join('\n\n---\n\n'),
-			urlMetrics,
+			combinedContent,
+			results,
 		};
 	}
 
@@ -105,6 +114,7 @@ export class OpenAiClient {
 				toolName: string;
 				args: any;
 				result: string;
+				results: UrlFetchResult[];
 			}> = [];
 
 			// Flag to track if we need to continue after tool calls
@@ -264,21 +274,26 @@ export class OpenAiClient {
 							// Store requested URLs for logging
 							requestedUrls = urls;
 
-							const fetchResult = await this.fetchUrls(urls, metrics);
+							const fetchResult = await this.fetchUrls(urls);
 
 							// Add URL metrics to overall metrics
-							if (fetchResult.urlMetrics) {
-								metrics.urlFetches = [
-									...(metrics.urlFetches || []),
-									...fetchResult.urlMetrics,
-								];
-							}
+							const urlMetrics = fetchResult.results.map(r => ({
+								url: r.url,
+								startTime: 0, // These are calculated in fetchUrls now
+								endTime: 0,
+								sizeBytes: r.metrics.sizeBytes,
+							}));
+							metrics.urlFetches = [
+								...(metrics.urlFetches || []),
+								...urlMetrics,
+							];
 
 							// Store the tool call result for continuation
 							toolCallResults.push({
 								toolName: 'fetch_urls',
 								args,
-								result: fetchResult.content,
+								result: fetchResult.combinedContent,
+								results: fetchResult.results,
 							});
 
 							// Mark that we need continuation
@@ -289,8 +304,8 @@ export class OpenAiClient {
 								type: 'tool_use',
 								toolName: 'fetch_urls',
 								toolStatus: 'completed',
-								content: `Fetched ${urls.length} URL(s) - ${fetchResult.content.length} chars: ${urlsPreview}`,
-								urlMetrics: fetchResult.urlMetrics,
+								content: `Fetched ${urls.length} URL(s) - ${fetchResult.combinedContent.length} chars: ${urlsPreview}`,
+								urlMetrics,
 							};
 
 							yield completedEvent;
@@ -334,118 +349,110 @@ export class OpenAiClient {
 				}
 			}
 
-			// If tools were called, continue the conversation with the tool results
+			// If tools were called, yield a continuation event
 			if (needsContinuation && toolCallResults.length > 0) {
-				// Add tool results to the conversation
-				for (const toolResult of toolCallResults) {
-					// Add the assistant's tool call message
-					messages.push({
-						role: 'assistant' as const,
-						content: `I'll fetch the requested content for you.`,
-					} satisfies EasyInputMessage);
-
-					// Add the tool result as a user message (this is how we pass tool results back)
-					messages.push({
-						role: 'user' as const,
-						content: `Tool result for ${toolResult.toolName}:\n${toolResult.result}`,
-					} satisfies EasyInputMessage);
+				const toolResult = toolCallResults[0];
+				if (toolResult) {
+					const continuationEvent: ResponseStreamEvent = {
+						type: 'tool_continuation',
+						toolName: toolResult.toolName,
+						toolResult: toolResult.result,
+						requestedUrls,
+						urlMetrics: metrics.urlFetches,
+						urlFetchResults: toolResult.results,
+						usage: responseUsage,
+					};
+					yield continuationEvent;
 				}
+			}
+		} catch (error) {
+			console.error('OpenAI streaming error:', error);
+			const streamEvent: ResponseStreamEvent = {
+				type: 'error',
+				content: error instanceof Error ? error.message : 'Unknown error',
+			};
 
-				// Create a continuation stream with the updated conversation
-				const continuationStream = await this.client.responses.create({
-					model,
-					input: messages,
-					stream: true,
-					reasoning: {summary: 'detailed'},
-					tools: [
-						{type: 'web_search_preview'},
-						{
-							type: 'function',
-							name: 'fetch_urls',
-							description:
-								'Fetch content from one or more URLs and return them in markdown format',
-							parameters: {
-								type: 'object',
-								properties: {
-									urls: {
-										type: 'array',
-										items: {
-											type: 'string',
-										},
-										description: 'Array of URLs to fetch content from',
+			yield streamEvent;
+		}
+	}
+
+	async *continueStreamResponse(
+		model: string,
+		conversation: ChatMessage[],
+	): AsyncGenerator<ResponseStreamEvent> {
+		let responseUsage: ResponseUsage | null = null;
+
+		try {
+			const messages: ResponseInput = conversation.map(
+				msg =>
+					({
+						role: msg.role,
+						content: msg.content,
+					}) satisfies EasyInputMessage,
+			);
+
+			const stream = await this.client.responses.create({
+				model,
+				input: messages,
+				stream: true,
+				reasoning: {summary: 'detailed'},
+				tools: [
+					{type: 'web_search_preview'},
+					{
+						type: 'function',
+						name: 'fetch_urls',
+						description:
+							'Fetch content from one or more URLs and return them in markdown format',
+						parameters: {
+							type: 'object',
+							properties: {
+								urls: {
+									type: 'array',
+									items: {
+										type: 'string',
 									},
+									description: 'Array of URLs to fetch content from',
 								},
-								required: ['urls'],
-								additionalProperties: false,
 							},
-							strict: true,
+							required: ['urls'],
+							additionalProperties: false,
 						},
-					],
-				});
+						strict: true,
+					},
+				],
+			});
 
-				// Stream the continuation response
-				for await (const event of continuationStream) {
-					// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-					switch (event.type) {
-						case 'response.created': {
-							// Skip re-emitting created event
-							break;
+			for await (const event of stream) {
+				// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+				switch (event.type) {
+					case 'response.created':
+					case 'response.in_progress':
+						// We can ignore these in continuation
+						break;
+
+					case 'response.output_item.added': {
+						if (event.item?.type === 'reasoning') {
+							yield {type: 'thinking', content: ''};
 						}
+						break;
+					}
 
-						case 'response.in_progress': {
-							// Skip re-emitting in_progress event
-							break;
+					case 'response.reasoning_summary_text.delta': {
+						yield {type: 'thinking', delta: event.delta};
+						break;
+					}
+
+					case 'response.output_text.delta': {
+						yield {type: 'output', delta: event.delta};
+						break;
+					}
+
+					case 'response.completed': {
+						if (event.response?.usage) {
+							responseUsage = event.response.usage as ResponseUsage;
 						}
-
-						case 'response.output_item.added': {
-							if (event.item?.type === 'reasoning') {
-								const streamEvent: ResponseStreamEvent = {
-									type: 'thinking',
-									content: '',
-								};
-								yield streamEvent;
-							}
-							break;
-						}
-
-						case 'response.reasoning_summary_text.delta': {
-							const streamEvent: ResponseStreamEvent = {
-								type: 'thinking',
-								delta: event.delta,
-							};
-							yield streamEvent;
-							break;
-						}
-
-						case 'response.output_text.delta': {
-							const streamEvent: ResponseStreamEvent = {
-								type: 'output',
-								delta: event.delta,
-							};
-							yield streamEvent;
-							break;
-						}
-
-						case 'response.completed': {
-							// Extract usage information from continuation
-							if (event.response?.usage) {
-								responseUsage = event.response.usage as ResponseUsage;
-							}
-
-							metrics.endTime = Date.now();
-							metrics.usage = responseUsage || undefined;
-
-							yield {
-								type: 'complete',
-								usage: responseUsage || undefined,
-							};
-							break;
-						}
-
-						default: {
-							// Handle other events as needed
-							break;
-						}
+						yield {type: 'complete', usage: responseUsage || undefined};
+						break;
 					}
 				}
 			}

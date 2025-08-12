@@ -442,9 +442,8 @@ export class SessionLogger {
 		}
 	}
 
-	async createComprehensiveLog(): Promise<void> {
-		const timestamp = new Date().toISOString();
-		const filename = `deep-research-log-${timestamp.replace(/:/g, '-').replace(/\./g, '-')}.md`;
+	async createSessionLog(): Promise<void> {
+		const filename = `session.md`;
 		const filepath = path.join(this.sessionDir, filename);
 
 		let content = `# Deep Research Session Log\n\n`;
@@ -532,25 +531,13 @@ export class SessionLogger {
 			}
 
 			// Include URL fetch details if any
-			try {
-				const urlFetchFile = path.join(
-					this.sessionDir,
-					`${interNum}-response-url-fetch.md`,
-				);
-				await fs.readFile(urlFetchFile, 'utf8');
-
-				// If we have URL fetches, include detailed metrics
-				const metricsForInteraction = this.currentMetrics?.urlFetches || [];
-				if (metricsForInteraction.length > 0) {
-					content += `### URL Fetch Details\n\n`;
-					metricsForInteraction.forEach((fetch, idx) => {
-						content += `#### ${idx + 1}. ${fetch.url}\n`;
-						content += `- **Latency:** ${fetch.latency}ms\n`;
-						content += `- **Size:** ${fetch.sizeFormatted}\n\n`;
-					});
+			if (interactionData && interactionData.urls > 0) {
+				content += `### URL Fetch Details\n\n`;
+				for (let j = 1; j <= interactionData.urls; j++) {
+					const urlFetchFile = `${interNum}-request-url-fetch-${j}.md`;
+					content += `- [${urlFetchFile}](./${urlFetchFile})\n`;
 				}
-			} catch {
-				// No URL fetches for this interaction
+				content += '\n';
 			}
 		}
 

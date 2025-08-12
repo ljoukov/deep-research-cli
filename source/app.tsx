@@ -70,13 +70,13 @@ export default function App({args, apiKey}: AppProps) {
 	const openaiClient = new OpenAiClient(apiKey);
 	const [logger] = useState(() => new SessionLogger());
 
-	// Create comprehensive log on exit
+	// Create session log on exit
 	useEffect(() => {
 		const handleExit = async () => {
 			try {
-				await logger.createComprehensiveLog();
+				await logger.createSessionLog();
 			} catch (error) {
-				console.error('Failed to create comprehensive log:', error);
+				console.error('Failed to create session log:', error);
 			}
 		};
 
@@ -269,10 +269,9 @@ export default function App({args, apiKey}: AppProps) {
 		let finalThinkingContent = '';
 		let streamingSaveCounter = 0;
 		let requestedUrls: string[] = [];
-		let urlFetchResults: Array<{url: string; content: string; metrics: any}> = [];
 		let usage: any = null;
 		const startTime = Date.now();
-		
+
 		// Start logging
 		const model = args.model ?? 'o3-deep-research';
 		await logger.startInteraction(model);
@@ -299,17 +298,23 @@ export default function App({args, apiKey}: AppProps) {
 				streamingSaveCounter = counter;
 			};
 
-			let isInToolCall = false;
 			let toolCallInProgress = false;
-			
-			for await (const event of generator) {
+			let reasoningLogged = false;
+
+			const processEvent = async (event: ResponseStreamEvent) => {
 				// Update logger state based on event
 				switch (event.type) {
 					case 'thinking':
-						await logger.setCurrentState('thinking', `Processing reasoning tokens`);
+						await logger.setCurrentState('thinking', 'Processing reasoning tokens');
+						if (!reasoningLogged) {
+							await logger.logReasoning(event.delta ?? '', false);
+							reasoningLogged = true;
+						} else if (event.delta) {
+							await logger.logReasoning(event.delta, true);
+						}
+
 						if (event.delta) {
 							finalThinkingContent += event.delta;
-							await logger.logReasoning(event.delta, true);
 						}
 						break;
 					case 'output':
@@ -319,48 +324,94 @@ export default function App({args, apiKey}: AppProps) {
 						}
 						break;
 					case 'tool_use':
-						if (event.toolName === 'fetch_urls' && event.toolStatus === 'executing' && !toolCallInProgress) {
+						if (
+							event.toolName === 'fetch_urls' &&
+							event.toolStatus === 'executing' &&
+							!toolCallInProgress
+						) {
 							toolCallInProgress = true;
 							await logger.setCurrentState('tool_calling');
-							// Extract URLs from the event content if available
 							if (event.content) {
-								const urlMatch = event.content.match(/Fetching \d+ URL\(s\): (.+)/);
-								if (urlMatch && urlMatch[1]) {
-									requestedUrls = urlMatch[1].split(', ').filter(u => u && u !== '...');
+								const urlMatch = event.content.match(
+									/Fetching \d+ URL\(s\): (.+)/,
+								);
+								if (urlMatch?.[1]) {
+									requestedUrls = urlMatch[1]
+										.split(', ')
+										.filter(u => u && u !== '...');
 									if (requestedUrls.length > 0) {
-										await logger.logUrlFetchRequest(requestedUrls);
+										await logger.logResponse(
+											`Tool call: fetch_urls\nArguments: ${JSON.stringify({urls: requestedUrls})}`,
+										);
 									}
 								}
 							}
 						} else if (event.toolStatus === 'completed') {
 							toolCallInProgress = false;
-							// Capture URL fetch metrics when tool completes
-							if (event.urlMetrics && event.urlMetrics.length > 0) {
-								// Convert metrics to the format expected by the logger
-								const formattedMetrics = event.urlMetrics.map(urlMetric => ({
-									url: urlMetric.url,
-									latency: urlMetric.endTime - urlMetric.startTime,
-									sizeBytes: urlMetric.sizeBytes,
-									sizeFormatted: logger.formatBytesForMetrics(urlMetric.sizeBytes)
-								}));
-								
-								// Update the logger's current metrics directly
-								if (logger['currentMetrics']) {
-									if (!logger['currentMetrics'].urlFetches) {
-										logger['currentMetrics'].urlFetches = [];
-									}
-									logger['currentMetrics'].urlFetches.push(...formattedMetrics);
-									logger['cumulativeMetrics'].totalUrlFetches += formattedMetrics.length;
-									await logger.updateGlobalStats();
-								}
-							}
 						}
 						break;
+					case 'tool_continuation':
+						// This is the major change: handle the continuation
+						// 1. Finalize the first interaction (the tool request)
+						await logger.updateMetrics(event.usage, Date.now() - startTime);
+						await logger.logInteractionStats();
+
+						// 2. Start a new interaction for the tool response
+						await logger.startInteraction(model);
+						reasoningLogged = false; // Reset for the new interaction
+						await logger.setCurrentState('fetching_urls');
+
+						// 3. Log the combined fetch result as the new "request"
+						if (event.toolResult) {
+							await logger.logRequest(event.toolResult);
+						}
+
+						// 4. Log individual URL fetch results
+						if (event.urlFetchResults) {
+							for (const [
+								index,
+								result,
+							] of event.urlFetchResults.entries()) {
+								await logger.logUrlFetchResult(
+									index + 1,
+									result.url,
+									result.content,
+									result.metrics,
+								);
+							}
+						}
+
+						// 5. Continue the stream with the tool results
+						const continuationHistory: ChatMessage[] = [
+							...conversationHistory,
+							userMessage,
+							{
+								role: 'assistant',
+								content: 'I will fetch the content of the URLs.',
+								timestamp: new Date(),
+							},
+							{
+								role: 'user',
+								content: event.toolResult ?? '',
+								timestamp: new Date(),
+							},
+						];
+
+						const continuationGenerator = openaiClient.continueStreamResponse(
+							model,
+							continuationHistory,
+						);
+						for await (const contEvent of continuationGenerator) {
+							await processEvent(contEvent); // Recursively process events
+						}
+						return; // Exit after handling continuation
+
 					case 'complete':
 						usage = event.usage;
 						break;
 				}
-				
+
+				// Pass to UI handler
 				await handleStreamEvent(event, {
 					finalOutputContent,
 					streamingSaveCounter,
@@ -368,28 +419,34 @@ export default function App({args, apiKey}: AppProps) {
 					setFinalOutputContent,
 					setStreamingSaveCounter,
 				});
+			};
+
+			for await (const event of generator) {
+				await processEvent(event);
 			}
-			
-			// Log final metrics
+
+			// Log final metrics for the last interaction
 			const duration = Date.now() - startTime;
 			await logger.updateMetrics(usage, duration);
 			await logger.logInteractionStats();
-			
-			// Create comprehensive log for non-interactive sessions
+
+			// Create session log for non-interactive sessions
 			if (args.request || args.requestFile) {
-				await logger.createComprehensiveLog();
+				await logger.createSessionLog();
 			}
-			
 		} catch (error_) {
 			setStreamingState('error');
 			setError(error_ instanceof Error ? error_.message : 'Unknown error');
-			await logger.setCurrentState('error', error_ instanceof Error ? error_.message : 'Unknown error');
-			
-			// Create comprehensive log even on error
+			await logger.setCurrentState(
+				'error',
+				error_ instanceof Error ? error_.message : 'Unknown error',
+			);
+
+			// Create session log even on error
 			if (args.request || args.requestFile) {
-				await logger.createComprehensiveLog();
+				await logger.createSessionLog();
 			}
-			
+
 			if (args.request ?? args.requestFile) {
 				exit();
 			}
