@@ -11,14 +11,14 @@ export type ChatMessage = {
 	timestamp: Date;
 };
 
-export interface Usage {
+export type Usage = {
 	prompt_tokens: number;
 	completion_tokens: number;
 	total_tokens: number;
 	cached_tokens?: number;
 	thinking_tokens?: number;
 	cost?: number;
-}
+};
 
 export type ResponseStreamEvent = {
 	type:
@@ -69,7 +69,7 @@ export type StreamingState =
 	| 'error'
 	| 'complete';
 
-export interface StreamMetrics {
+export type StreamMetrics = {
 	startTime: number;
 	endTime?: number;
 	usage?: Usage;
@@ -79,4 +79,4 @@ export interface StreamMetrics {
 		endTime: number;
 		sizeBytes: number;
 	}>;
-}
+};

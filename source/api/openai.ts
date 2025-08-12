@@ -110,7 +110,7 @@ export class OpenAiClient {
 					metrics: {url, latency, sizeBytes, sizeFormatted},
 				});
 				return `# Content from ${url}\n\n${content}`;
-			} catch (error) {
+			} catch (error: unknown) {
 				const endTime = Date.now();
 				const latency = endTime - startTime;
 				const errorContent = `Error fetching ${url}: ${
@@ -330,7 +330,7 @@ export class OpenAiClient {
 									content: `Fetched ${urls.length} URL(s) - ${fetchResult.combinedContent.length} chars: ${urlsPreview}`,
 									urlMetrics,
 								};
-							} catch (error) {
+							} catch (error: unknown) {
 								yield {
 									type: 'tool_use',
 									toolName: 'fetch_urls',
@@ -373,7 +373,7 @@ export class OpenAiClient {
 					};
 				}
 			}
-		} catch (error) {
+		} catch (error: unknown) {
 			yield {
 				type: 'error',
 				content: error instanceof Error ? error.message : 'Unknown error',

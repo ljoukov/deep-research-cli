@@ -3,10 +3,10 @@ import * as path from 'node:path';
 import chalk from 'chalk';
 import type {Usage} from '../types.js';
 
-export interface InteractionMetrics {
+export type InteractionMetrics = {
 	timestamp: Date;
 	model: string;
-	duration: number; // milliseconds
+	duration: number; // Milliseconds
 	usage?: {
 		inputTokens: number;
 		outputTokens: number;
@@ -20,16 +20,16 @@ export interface InteractionMetrics {
 		};
 	};
 	urlFetches?: UrlFetchMetrics[];
-}
+};
 
-export interface UrlFetchMetrics {
+export type UrlFetchMetrics = {
 	url: string;
-	latency: number; // milliseconds
+	latency: number; // Milliseconds
 	sizeBytes: number;
 	sizeFormatted: string;
-}
+};
 
-export interface SessionStatus {
+export type SessionStatus = {
 	state:
 		| 'starting'
 		| 'thinking'
@@ -41,9 +41,9 @@ export interface SessionStatus {
 	currentInteraction: number;
 	progress?: string;
 	elapsedTime: number;
-}
+};
 
-export interface CumulativeMetrics {
+export type CumulativeMetrics = {
 	totalDuration: number;
 	totalInteractions: number;
 	completedInteractions: number;
@@ -64,22 +64,24 @@ export interface CumulativeMetrics {
 		urls: number;
 		cost: string;
 	}>;
-}
+};
 
 export class SessionLogger {
-	private sessionDir: string;
-	private interactionCount: number = 0;
-	private sessionStartTime: Date;
-	private cumulativeMetrics: CumulativeMetrics;
-	private currentMetrics: InteractionMetrics | null = null;
+	private readonly sessionDir: string;
+	private interactionCount = 0;
+	private readonly sessionStartTime: Date;
+	private readonly cumulativeMetrics: CumulativeMetrics;
+	private currentMetrics: InteractionMetrics | undefined;
 	private currentStatus: SessionStatus;
 
 	constructor() {
 		this.sessionStartTime = new Date();
 		const timestamp = this.sessionStartTime
 			.toISOString()
-			.replace(/:/g, '-')
-			.replace(/\./g, '-');
+			.replaceAll(':', '-')
+			.replaceAll('.', '-')
+			.replaceAll('/', '-')
+			.replaceAll('Z', '');
 		this.sessionDir = `logs-${timestamp}`;
 
 		this.cumulativeMetrics = {
@@ -102,39 +104,7 @@ export class SessionLogger {
 		};
 	}
 
-	private async ensureDirectory(): Promise<void> {
-		try {
-			await fs.mkdir(this.sessionDir, {recursive: true});
-		} catch (error) {
-			console.error('Failed to create log directory:', error);
-		}
-	}
-
-	private formatFileNumber(num: number): string {
-		return num.toString().padStart(5, '0');
-	}
-
-	private formatBytes(bytes: number): string {
-		if (bytes < 1024) return `${bytes}B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-		if (bytes < 1024 * 1024 * 1024)
-			return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-		return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
-	}
-
-	private formatDuration(ms: number): string {
-		if (ms < 1000) return `${ms}ms`;
-		const seconds = Math.floor(ms / 1000);
-		if (seconds < 60) return `${seconds}s`;
-		const minutes = Math.floor(seconds / 60);
-		const remainingSeconds = seconds % 60;
-		if (minutes < 60) return `${minutes}min ${remainingSeconds}s`;
-		const hours = Math.floor(minutes / 60);
-		const remainingMinutes = minutes % 60;
-		return `${hours}h ${remainingMinutes}min`;
-	}
-
-	async startInteraction(model: string): Promise<void> {
+	public async startInteraction(model: string): Promise<void> {
 		await this.ensureDirectory();
 		this.interactionCount++;
 		this.cumulativeMetrics.totalInteractions++;
@@ -154,26 +124,27 @@ export class SessionLogger {
 		await this.updateGlobalStats();
 	}
 
-	async logRequest(content: string): Promise<void> {
+	public async logRequest(content: string): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-request.md`;
 		const filepath = path.join(this.sessionDir, filename);
 		await fs.writeFile(filepath, content, 'utf8');
 	}
 
-	async logRequestFromUrlFetches(
+	public async logRequestFromUrlFetches(
 		urlFetchResults: Array<{url: string; content: string; metrics: any}>,
 	): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-request.md`;
 		const filepath = path.join(this.sessionDir, filename);
 		let content = '# Fetched Content\n\n';
-		urlFetchResults.forEach((result, index) => {
+		for (const [index, result] of urlFetchResults.entries()) {
 			const fetchFile = `${this.formatFileNumber(this.interactionCount)}-tool-fetch_url-${index + 1}.md`;
 			content += `- [${result.url}](./${fetchFile})\n`;
-		});
+		}
+
 		await fs.writeFile(filepath, content, 'utf8');
 	}
 
-	async logToolCall(toolName: string, args: any): Promise<void> {
+	public async logToolCall(toolName: string, args: any): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-response.md`;
 		const filepath = path.join(this.sessionDir, filename);
 
@@ -208,7 +179,7 @@ export class SessionLogger {
 		await fs.writeFile(filepath, content, 'utf8');
 	}
 
-	async logResponse(content: string, append: boolean = false): Promise<void> {
+	public async logResponse(content: string, append = false): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-response.md`;
 		const filepath = path.join(this.sessionDir, filename);
 
@@ -219,7 +190,7 @@ export class SessionLogger {
 		}
 	}
 
-	async logReasoning(content: string, append: boolean = false): Promise<void> {
+	public async logReasoning(content: string, append = false): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-response-reasoning.md`;
 		const filepath = path.join(this.sessionDir, filename);
 
@@ -230,20 +201,20 @@ export class SessionLogger {
 		}
 	}
 
-	async logUrlFetchRequest(urls: string[]): Promise<void> {
+	public async logUrlFetchRequest(urls: string[]): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-response-url-fetch.md`;
 		const filepath = path.join(this.sessionDir, filename);
 
 		let content = '# URL Fetch Request\n\n';
 		content += 'The model requested to fetch the following URLs:\n\n';
-		urls.forEach((url, index) => {
+		for (const [index, url] of urls.entries()) {
 			content += `${index + 1}. ${url}\n`;
-		});
+		}
 
 		await fs.writeFile(filepath, content, 'utf8');
 	}
 
-	async logUrlFetchResult(
+	public async logUrlFetchResult(
 		index: number,
 		url: string,
 		content: string,
@@ -264,9 +235,7 @@ export class SessionLogger {
 
 		// Update current metrics
 		if (this.currentMetrics) {
-			if (!this.currentMetrics.urlFetches) {
-				this.currentMetrics.urlFetches = [];
-			}
+			this.currentMetrics.urlFetches ??= [];
 			this.currentMetrics.urlFetches.push(metrics);
 		}
 
@@ -274,43 +243,47 @@ export class SessionLogger {
 		await this.updateGlobalStats();
 	}
 
-	async logCombinedUrlFetch(combinedContent: string): Promise<void> {
+	public async logCombinedUrlFetch(combinedContent: string): Promise<void> {
 		const filename = `${this.formatFileNumber(this.interactionCount)}-request-url-fetch.md`;
 		const filepath = path.join(this.sessionDir, filename);
 		await fs.writeFile(filepath, combinedContent, 'utf8');
 	}
 
-	async updateMetrics(usage: Usage | null, duration: number): Promise<void> {
+	public async updateMetrics(
+		usage: Usage | undefined,
+		duration: number,
+	): Promise<void> {
 		if (this.currentMetrics) {
 			this.currentMetrics.duration = duration;
 
 			if (usage) {
 				this.currentMetrics.usage = {
-					inputTokens: usage.prompt_tokens,
-					outputTokens: usage.completion_tokens,
-					cachedTokens: usage.cached_tokens || 0,
-					thinkingTokens: usage.thinking_tokens || 0,
-					totalTokens: usage.total_tokens,
+					inputTokens: usage.promptTokens,
+					outputTokens: usage.completionTokens,
+					cachedTokens: usage.cachedTokens ?? 0,
+					thinkingTokens: usage.thinkingTokens ?? 0,
+					totalTokens: usage.totalTokens,
 					cost: {
 						input: 0,
 						output: 0,
-						total: usage.cost || 0,
+						total: usage.cost ?? 0,
 					},
 				};
 
 				// Update cumulative
-				this.cumulativeMetrics.totalInputTokens += usage.prompt_tokens;
-				this.cumulativeMetrics.totalOutputTokens += usage.completion_tokens;
-				this.cumulativeMetrics.totalCachedTokens += usage.cached_tokens || 0;
-				this.cumulativeMetrics.totalThinkingTokens +=
-					usage.thinking_tokens || 0;
-				this.cumulativeMetrics.totalCost += usage.cost || 0;
+				this.cumulativeMetrics.totalInputTokens += usage.promptTokens;
+				this.cumulativeMetrics.totalOutputTokens += usage.completionTokens;
+				this.cumulativeMetrics.totalCachedTokens += usage.cachedTokens ?? 0;
+				this.cumulativeMetrics.totalThinkingTokens += usage.thinkingTokens ?? 0;
+				this.cumulativeMetrics.totalCost += usage.cost ?? 0;
 			}
 		}
 	}
 
-	async logInteractionStats(): Promise<void> {
-		if (!this.currentMetrics) return;
+	public async logInteractionStats(): Promise<void> {
+		if (!this.currentMetrics) {
+			return;
+		}
 
 		const filename = `${this.formatFileNumber(this.interactionCount)}-stats.md`;
 		const filepath = path.join(this.sessionDir, filename);
@@ -326,11 +299,13 @@ export class SessionLogger {
 			if (this.currentMetrics.usage.cachedTokens > 0) {
 				content += ` (cached: ${this.currentMetrics.usage.cachedTokens})`;
 			}
+
 			content += '\n';
 			content += `- Output: ${this.currentMetrics.usage.outputTokens}\n`;
 			if (this.currentMetrics.usage.thinkingTokens > 0) {
 				content += `- Thinking: ${this.currentMetrics.usage.thinkingTokens}\n`;
 			}
+
 			content += `- Total: ${this.currentMetrics.usage.totalTokens}\n\n`;
 
 			const formatCurrency = new Intl.NumberFormat('en-US', {
@@ -339,7 +314,7 @@ export class SessionLogger {
 				minimumFractionDigits: 6,
 			}).format;
 			content += '## Cost\n';
-			content += `- Total: ${formatCurrency(this.currentMetrics.usage.cost?.total || 0)}\n\n`;
+			content += `- Total: ${formatCurrency(this.currentMetrics.usage.cost?.total ?? 0)}\n\n`;
 		}
 
 		if (
@@ -347,11 +322,11 @@ export class SessionLogger {
 			this.currentMetrics.urlFetches.length > 0
 		) {
 			content += '## URL Fetches\n';
-			this.currentMetrics.urlFetches.forEach((fetch, index) => {
+			for (const [index, fetch] of this.currentMetrics.urlFetches.entries()) {
 				content += `${index + 1}. **${fetch.url}**\n`;
 				content += `   - Latency: ${fetch.latency}ms\n`;
 				content += `   - Size: ${fetch.sizeFormatted}\n`;
-			});
+			}
 		} else {
 			content += '## URL Fetches\nNone\n';
 		}
@@ -369,11 +344,11 @@ export class SessionLogger {
 			status: '✅ Complete',
 			duration: this.formatDuration(this.currentMetrics.duration),
 			model: this.currentMetrics.model,
-			input: this.currentMetrics.usage?.inputTokens || 0,
-			output: this.currentMetrics.usage?.outputTokens || 0,
-			cached: this.currentMetrics.usage?.cachedTokens || 0,
-			urls: this.currentMetrics.urlFetches?.length || 0,
-			cost: formatCurrency(this.currentMetrics.usage?.cost?.total || 0),
+			input: this.currentMetrics.usage?.inputTokens ?? 0,
+			output: this.currentMetrics.usage?.outputTokens ?? 0,
+			cached: this.currentMetrics.usage?.cachedTokens ?? 0,
+			urls: this.currentMetrics.urlFetches?.length ?? 0,
+			cost: formatCurrency(this.currentMetrics.usage?.cost?.total ?? 0),
 		});
 
 		this.cumulativeMetrics.completedInteractions++;
@@ -381,7 +356,7 @@ export class SessionLogger {
 		await this.updateGlobalStats();
 	}
 
-	async setCurrentState(
+	public async setCurrentState(
 		state: SessionStatus['state'],
 		progress?: string,
 	): Promise<void> {
@@ -392,7 +367,7 @@ export class SessionLogger {
 		await this.updateGlobalStats();
 	}
 
-	async updateGlobalStats(): Promise<void> {
+	public async updateGlobalStats(): Promise<void> {
 		const filepath = path.join(this.sessionDir, 'stats.md');
 
 		const elapsed = Date.now() - this.sessionStartTime.getTime();
@@ -417,10 +392,12 @@ export class SessionLogger {
 		if (this.currentMetrics) {
 			content += `**Model:** ${this.currentMetrics.model}\n`;
 		}
+
 		content += `**Current Interaction:** ${this.formatFileNumber(this.currentStatus.currentInteraction)}\n`;
 		if (this.currentStatus.progress) {
 			content += `**Progress:** ${this.currentStatus.progress}\n`;
 		}
+
 		content += `**Elapsed Time:** ${this.formatDuration(this.currentStatus.elapsedTime)}\n\n`;
 
 		// Session Totals
@@ -434,6 +411,7 @@ export class SessionLogger {
 		) {
 			content += ', 1 in progress';
 		}
+
 		content += ')\n';
 
 		const totalTokens =
@@ -445,9 +423,11 @@ export class SessionLogger {
 		if (this.cumulativeMetrics.totalCachedTokens > 0) {
 			content += `- Cached: ${this.cumulativeMetrics.totalCachedTokens.toLocaleString()}\n`;
 		}
+
 		if (this.cumulativeMetrics.totalThinkingTokens > 0) {
 			content += `**Total Thinking Tokens:** ${this.cumulativeMetrics.totalThinkingTokens.toLocaleString()}\n`;
 		}
+
 		const formatCurrency = new Intl.NumberFormat('en-US', {
 			style: 'currency',
 			currency: 'USD',
@@ -462,7 +442,7 @@ export class SessionLogger {
 			content +=
 				'| # | Status | Duration | Model | Input | Output | Cached | URLs | Cost |\n';
 			content +=
-				'|---|--------|----------|-------|-------|--------|--------|------|------|\n';
+				'|---|---|----------|-------|-------|--------|--------|------|------|\n';
 
 			for (const interaction of this.cumulativeMetrics.interactions) {
 				content += `| ${interaction.number} | ${interaction.status} | ${interaction.duration} | ${interaction.model} | ${interaction.input} | ${interaction.output} | ${interaction.cached} | ${interaction.urls} | ${interaction.cost} |\n`;
@@ -476,74 +456,56 @@ export class SessionLogger {
 			);
 
 			if (!interactionLogged) {
-				const currentNum = this.formatFileNumber(
+				const currentInteractionNumber = this.formatFileNumber(
 					this.currentStatus.currentInteraction,
 				);
 				const currentElapsed =
-					Date.now() - (this.currentMetrics?.timestamp.getTime() || Date.now());
-				content += `| ${currentNum} | 🔄 In Progress | ${this.formatDuration(
+					Date.now() - (this.currentMetrics?.timestamp.getTime() ?? Date.now());
+				content += `| ${currentInteractionNumber} | 🔄 In Progress | ${this.formatDuration(
 					currentElapsed,
-				)} | ${this.currentMetrics?.model || ''} | ... | ... | ... | ... | ... |\n`;
+				)}\n | ${this.currentMetrics?.model ?? ''} | ... | ... | ... | ... | ... |\n`;
 			}
 		}
 
 		await fs.writeFile(filepath, content, 'utf8');
 	}
 
-	private getStatusText(state: SessionStatus['state']): string {
-		switch (state) {
-			case 'starting':
-				return 'Starting...';
-			case 'thinking':
-				return 'Thinking...';
-			case 'tool_calling':
-				return 'Calling Tool...';
-			case 'fetching_urls':
-				return 'Fetching URLs...';
-			case 'responding':
-				return 'Responding...';
-			case 'complete':
-				return 'Complete';
-			case 'error':
-				return 'Error';
-			default:
-				return 'Unknown';
-		}
-	}
-
-	formatBytesForMetrics(bytes: number): UrlFetchMetrics['sizeFormatted'] {
+	public formatBytesForMetrics(
+		bytes: number,
+	): UrlFetchMetrics['sizeFormatted'] {
 		return this.formatBytes(bytes);
 	}
 
-	getCurrentInteractionNumber(): number {
+	public getCurrentInteractionNumber(): number {
 		return this.interactionCount;
 	}
 
-	getCurrentState(): SessionStatus['state'] {
+	public getCurrentState(): SessionStatus['state'] {
 		return this.currentStatus.state;
 	}
 
-	async logError(
+	public async logError(
 		error: Error,
-		interactionNumber?: number,
+		interactionNumber_?: number,
 		context?: string,
 	): Promise<void> {
 		await this.ensureDirectory();
 		const timestamp = new Date().toISOString();
-		const interactionNum =
-			interactionNumber ?? this.currentStatus.currentInteraction;
+		const interactionNumber =
+			interactionNumber_ ?? this.currentStatus.currentInteraction;
 		const logFilename = `error-${timestamp}.log`;
 		const filepath = path.join(this.sessionDir, logFilename);
 
 		let content = `Timestamp: ${timestamp}\n`;
-		content += `Interaction: ${this.formatFileNumber(interactionNum)}\n`;
+		content += `Interaction: ${this.formatFileNumber(interactionNumber)}\n`;
 		if (context) {
 			content += `Context: ${context}\n`;
 		}
+
 		content += `\n--- ERROR MESSAGE ---\n`;
 		content += `${error.message}\n`;
 		content += `\n--- STACK TRACE ---\n`;
-		content += `${error.stack || 'No stack trace available'}\n`;
+		content += `${error.stack ?? 'No stack trace available'}\n`;
 
 		await fs.writeFile(filepath, content, 'utf8');
 
@@ -553,7 +515,7 @@ export class SessionLogger {
 
 		// Add a FAILED entry to the interactions summary, if not already present for this interaction
 		const interactionAlreadyLogged = this.cumulativeMetrics.interactions.some(
-			i => i.number === this.formatFileNumber(interactionNum),
+			i => i.number === this.formatFileNumber(interactionNumber),
 		);
 
 		if (!interactionAlreadyLogged && this.currentMetrics) {
@@ -569,22 +531,22 @@ export class SessionLogger {
 					Date.now() - this.currentMetrics.timestamp.getTime(),
 				),
 				model: this.currentMetrics.model,
-				input: this.currentMetrics.usage?.inputTokens || 0,
-				output: this.currentMetrics.usage?.outputTokens || 0,
-				cached: this.currentMetrics.usage?.cachedTokens || 0,
-				urls: this.currentMetrics.urlFetches?.length || 0,
-				cost: formatCurrency(this.currentMetrics.usage?.cost?.total || 0),
+				input: this.currentMetrics.usage?.inputTokens ?? 0,
+				output: this.currentMetrics.usage?.outputTokens ?? 0,
+				cached: this.currentMetrics.usage?.cachedTokens ?? 0,
+				urls: this.currentMetrics.urlFetches?.length ?? 0,
+				cost: formatCurrency(this.currentMetrics.usage?.cost?.total ?? 0),
 			});
 		}
 
 		await this.updateGlobalStats();
 	}
 
-	async logFatalError(error: Error): Promise<void> {
+	public async logFatalError(error: Error): Promise<void> {
 		console.error(
 			chalk.red.bold('\n\n❌ A fatal error occurred. Session terminated.\n'),
 		);
-		console.error(chalk.red(error.stack || error.message));
+		console.error(chalk.red(error.stack ?? error.message));
 
 		await this.ensureDirectory();
 		const timestamp = new Date().toISOString();
@@ -596,7 +558,7 @@ export class SessionLogger {
 		content += `\n--- ERROR MESSAGE ---\n`;
 		content += `${error.message}\n`;
 		content += `\n--- STACK TRACE ---\n`;
-		content += `${error.stack || 'No stack trace available'}\n`;
+		content += `${error.stack ?? 'No stack trace available'}\n`;
 
 		try {
 			await fs.writeFile(filepath, content, 'utf8');
@@ -605,53 +567,52 @@ export class SessionLogger {
 					`\n📋 Full error details have been logged to: ${filepath}`,
 				),
 			);
-		} catch (writeError) {
+		} catch (error_: unknown) {
 			console.error(
 				chalk.red.bold(
 					'Additionally, failed to write the fatal error log file.',
 				),
 			);
-			console.error(writeError);
+			console.error(error_);
 		}
 	}
 
-	async logUrlMetrics(metrics: UrlFetchMetrics[]): Promise<void> {
+	public async logUrlMetrics(metrics: UrlFetchMetrics[]): Promise<void> {
 		// Update current metrics
 		if (this.currentMetrics) {
-			if (!this.currentMetrics.urlFetches) {
-				this.currentMetrics.urlFetches = [];
-			}
+			this.currentMetrics.urlFetches ??= [];
 			this.currentMetrics.urlFetches.push(...metrics);
 			this.cumulativeMetrics.totalUrlFetches += metrics.length;
 			await this.updateGlobalStats();
 		}
 	}
 
-	async createSessionLog(): Promise<void> {
+	public async createSessionLog(): Promise<void> {
 		const filename = `session.md`;
 		const filepath = path.join(this.sessionDir, filename);
 
 		let content = `# Deep Research Session Log\n\n`;
 		content += `**Session Started:** ${this.sessionStartTime.toISOString()}\n`;
 		content += `**Session Duration:** ${this.formatDuration(this.cumulativeMetrics.totalDuration)}\n`;
-		content += `**Total Response Time:** ${this.formatDuration(
-			this.cumulativeMetrics.interactions.reduce((sum, i) => {
-				const match = i.duration.match(/(\d+)(?:min\s*)?(\d+)?s?/);
-				if (match) {
-					const mins =
-						match[1] && i.duration.includes('min') ? parseInt(match[1]) : 0;
-					const secs = match[2]
-						? parseInt(match[2])
-						: i.duration.includes('s') &&
-							  !i.duration.includes('min') &&
-							  match[1]
-							? parseInt(match[1])
-							: 0;
-					return sum + mins * 60 * 1000 + secs * 1000;
-				}
-				return sum;
-			}, 0),
-		)}\n\n`;
+
+		let totalResponseTime = 0;
+		for (const i of this.cumulativeMetrics.interactions) {
+			const match = /(\d+)(?:min\s*)?(\d+)?s?/.exec(i.duration);
+			if (match) {
+				const mins =
+					match[1] && i.duration.includes('min')
+						? Number.parseInt(match[1], 10)
+						: 0;
+				const secs = match[2]
+					? Number.parseInt(match[2], 10)
+					: i.duration.includes('s') && !i.duration.includes('min') && match[1]
+						? Number.parseInt(match[1], 10)
+						: 0;
+				totalResponseTime += mins * 60 * 1000 + secs * 1000;
+			}
+		}
+
+		content += `**Total Response Time:** ${this.formatDuration(totalResponseTime)}\n\n`;
 
 		content += `## Session Summary\n\n`;
 		content += `- **Total Interactions:** ${this.cumulativeMetrics.totalInteractions}\n`;
@@ -662,63 +623,158 @@ export class SessionLogger {
 		content += `- **Total URL Fetches:** ${this.cumulativeMetrics.totalUrlFetches}\n\n`;
 
 		// Read and include all interaction data
+		const interactionPromises = [];
 		for (let i = 1; i <= this.interactionCount; i++) {
-			const interNum = this.formatFileNumber(i);
-			content += `---\n\n`;
-			content += `## Interaction ${i}\n\n`;
-
-			// Get the interaction metrics from our stored data
-			const interactionData = this.cumulativeMetrics.interactions[i - 1];
-			if (interactionData) {
-				content += `**Timestamp:** ${new Date(this.sessionStartTime.getTime() + (i - 1) * 60000).toISOString()}\n`;
-				content += `**Model:** ${interactionData.model}\n`;
-				content += `**Duration:** ${interactionData.duration}\n`;
-				content += `**Tokens:** Input: ${interactionData.input}, Output: ${interactionData.output}, Cached: ${interactionData.cached}\n`;
-				if (interactionData.urls > 0) {
-					content += `**URL Fetches:** ${interactionData.urls}\n`;
-				}
-				content += '\n';
-			}
-
-			// Include request
-			try {
-				const requestFile = path.join(
-					this.sessionDir,
-					`${interNum}-request.md`,
-				);
-				const requestContent = await fs.readFile(requestFile, 'utf8');
-				content += `### Request\n\n${requestContent}\n\n`;
-			} catch {
-				// File might not exist
-			}
-
-			// Include reasoning if exists
-			try {
-				const reasoningFile = path.join(
-					this.sessionDir,
-					`${interNum}-response-reasoning.md`,
-				);
-				const reasoningContent = await fs.readFile(reasoningFile, 'utf8');
-				content += `### Reasoning\n\n${reasoningContent}\n\n`;
-			} catch {
-				// File might not exist
-			}
-
-			// Include response
-			try {
-				const responseFile = path.join(
-					this.sessionDir,
-					`${interNum}-response.md`,
-				);
-				const responseContent = await fs.readFile(responseFile, 'utf8');
-				content += `### Response\n\n${responseContent}\n\n`;
-			} catch {
-				// File might not exist
-			}
-
-			// Include URL fetch details if any - This is now part of the request file for the second interaction
+			interactionPromises.push(this.getInteractionLog(i));
 		}
 
+		const interactionLogs = await Promise.all(interactionPromises);
+		content += interactionLogs.join('');
+
 		await fs.writeFile(filepath, content, 'utf8');
+	}
+
+	private async getInteractionLog(interactionNumber: number): Promise<string> {
+		const interactionNumber_ = this.formatFileNumber(interactionNumber);
+		let content = `---\n\n`;
+		content += `## Interaction ${interactionNumber}\n\n`;
+
+		// Get the interaction metrics from our stored data
+		const interactionData =
+			this.cumulativeMetrics.interactions[interactionNumber - 1];
+		if (interactionData) {
+			content += `**Timestamp:** ${new Date(this.sessionStartTime.getTime() + (interactionNumber - 1) * 60_000).toISOString()}\n`;
+			content += `**Model:** ${interactionData.model}\n`;
+			content += `**Duration:** ${interactionData.duration}\n`;
+			content += `**Tokens:** Input: ${interactionData.input}, Output: ${interactionData.output}, Cached: ${interactionData.cached}\n`;
+			if (interactionData.urls > 0) {
+				content += `**URL Fetches:** ${interactionData.urls}\n`;
+			}
+
+			content += '\n';
+		}
+
+		// Include request
+		try {
+			const requestFile = path.join(
+				this.sessionDir,
+				`${interactionNumber_}-request.md`,
+			);
+			const requestContent = await fs.readFile(requestFile, 'utf8');
+			content += `### Request\n\n${requestContent}\n\n`;
+		} catch {
+			// File might not exist
+		}
+
+		// Include reasoning if exists
+		try {
+			const reasoningFile = path.join(
+				this.sessionDir,
+				`${interactionNumber_}-response-reasoning.md`,
+			);
+			const reasoningContent = await fs.readFile(reasoningFile, 'utf8');
+			content += `### Reasoning\n\n${reasoningContent}\n\n`;
+		} catch {
+			// File might not exist
+		}
+
+		// Include response
+		try {
+			const responseFile = path.join(
+				this.sessionDir,
+				`${interactionNumber_}-response.md`,
+			);
+			const responseContent = await fs.readFile(responseFile, 'utf8');
+			content += `### Response\n\n${responseContent}\n\n`;
+		} catch {
+			// File might not exist
+		}
+
+		return content;
+	}
+
+	private async ensureDirectory(): Promise<void> {
+		try {
+			await fs.mkdir(this.sessionDir, {recursive: true});
+		} catch (error: unknown) {
+			console.error('Failed to create log directory:', error);
+		}
+	}
+
+	private formatFileNumber(number_: number): string {
+		return number_.toString().padStart(5, '0');
+	}
+
+	private formatBytes(bytes: number): string {
+		if (bytes < 1024) {
+			return `${bytes}B`;
+		}
+
+		if (bytes < 1024 * 1024) {
+			return `${(bytes / 1024).toFixed(1)}KB`;
+		}
+
+		if (bytes < 1024 * 1024 * 1024) {
+			return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+		}
+
+		return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+	}
+
+	private formatDuration(milliseconds: number): string {
+		if (milliseconds < 1000) {
+			return `${milliseconds}ms`;
+		}
+
+		const seconds = Math.floor(milliseconds / 1000);
+		if (seconds < 60) {
+			return `${seconds}s`;
+		}
+
+		const minutes = Math.floor(seconds / 60);
+		const remainingSeconds = seconds % 60;
+		if (minutes < 60) {
+			return `${minutes}min ${remainingSeconds}s`;
+		}
+
+		const hours = Math.floor(minutes / 60);
+		const remainingMinutes = minutes % 60;
+		return `${hours}h ${remainingMinutes}min`;
+	}
+
+	private getStatusText(state: SessionStatus['state']): string {
+		switch (state) {
+			case 'starting': {
+				return 'Starting...';
+			}
+
+			case 'thinking': {
+				return 'Thinking...';
+			}
+
+			case 'tool_calling': {
+				return 'Calling Tool...';
+			}
+
+			case 'fetching_urls': {
+				return 'Fetching URLs...';
+			}
+
+			case 'responding': {
+				return 'Responding...';
+			}
+
+			case 'complete': {
+				return 'Complete';
+			}
+
+			case 'error': {
+				return 'Error';
+			}
+
+			default: {
+				return 'Unknown';
+			}
+		}
 	}
 }

@@ -38,7 +38,7 @@ const useStreamingLogic = () => {
 	const debouncedUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 	const setOutputContentDebounced = useCallback(
-		(updater: string | ((prev: string) => string)) => {
+		(updater: string | ((previous: string) => string)) => {
 			const newContent =
 				typeof updater === 'function'
 					? updater(outputContentRef.current)
@@ -60,7 +60,7 @@ const useStreamingLogic = () => {
 
 	// Immediate update (for non-streaming scenarios)
 	const setOutputContentImmediate = useCallback(
-		(updater: string | ((prev: string) => string)) => {
+		(updater: string | ((previous: string) => string)) => {
 			const newContent =
 				typeof updater === 'function'
 					? updater(outputContentRef.current)
@@ -329,7 +329,7 @@ export default function App({args, apiKey}: AppProps) {
 		let finalThinkingContent = '';
 		let streamingSaveCounter = 0;
 		let requestedUrls: string[] = [];
-		let usage: any = null;
+		let usage: any = undefined;
 		const startTime = Date.now();
 
 		// Start logging
