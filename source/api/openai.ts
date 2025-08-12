@@ -40,7 +40,7 @@ export class OpenAiClient {
 	): AsyncGenerator<ResponseStreamEvent> {
 		try {
 			// Build properly typed conversation input
-			const messages: ResponseInput = [
+			let messages: ResponseInput = [
 				...conversationHistory.map(
 					message =>
 						({
@@ -53,6 +53,16 @@ export class OpenAiClient {
 					content: input,
 				} satisfies EasyInputMessage,
 			];
+
+			// Track tool calls and their results for continuation
+			const toolCallResults: Array<{
+				toolName: string;
+				args: any;
+				result: string;
+			}> = [];
+
+			// Flag to track if we need to continue after tool calls
+			let needsContinuation = false;
 
 			const stream = await this.client.responses.create({
 				model,
@@ -204,10 +214,15 @@ export class OpenAiClient {
 
 							const result = await this.fetchUrls(urls);
 
-							yield {
-								type: 'output',
-								content: result,
-							};
+							// Store the tool call result for continuation
+							toolCallResults.push({
+								toolName: 'fetch_urls',
+								args,
+								result,
+							});
+
+							// Mark that we need continuation
+							needsContinuation = true;
 
 							// Create completion status event
 							const completedEvent: ResponseStreamEvent = {
@@ -232,9 +247,12 @@ export class OpenAiClient {
 					}
 
 					case 'response.completed': {
-						yield {
-							type: 'complete',
-						};
+						// Don't yield complete yet if we need to continue with tool results
+						if (!needsContinuation) {
+							yield {
+								type: 'complete',
+							};
+						}
 						break;
 					}
 
@@ -242,6 +260,113 @@ export class OpenAiClient {
 						// Uncomment if need to debug unhandled event types
 						// console.log('Unhandled event type:', event.type, event);
 						break;
+					}
+				}
+			}
+
+			// If tools were called, continue the conversation with the tool results
+			if (needsContinuation && toolCallResults.length > 0) {
+				// Add tool results to the conversation
+				for (const toolResult of toolCallResults) {
+					// Add the assistant's tool call message
+					messages.push({
+						role: 'assistant' as const,
+						content: `I'll fetch the requested content for you.`,
+					} satisfies EasyInputMessage);
+
+					// Add the tool result as a user message (this is how we pass tool results back)
+					messages.push({
+						role: 'user' as const,
+						content: `Tool result for ${toolResult.toolName}:\n${toolResult.result}`,
+					} satisfies EasyInputMessage);
+				}
+
+				// Create a continuation stream with the updated conversation
+				const continuationStream = await this.client.responses.create({
+					model,
+					input: messages,
+					stream: true,
+					reasoning: {summary: 'detailed'},
+					tools: [
+						{type: 'web_search_preview'},
+						{
+							type: 'function',
+							name: 'fetch_urls',
+							description:
+								'Fetch content from one or more URLs and return them in markdown format',
+							parameters: {
+								type: 'object',
+								properties: {
+									urls: {
+										type: 'array',
+										items: {
+											type: 'string',
+										},
+										description: 'Array of URLs to fetch content from',
+									},
+								},
+								required: ['urls'],
+								additionalProperties: false,
+							},
+							strict: true,
+						},
+					],
+				});
+
+				// Stream the continuation response
+				for await (const event of continuationStream) {
+					// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+					switch (event.type) {
+						case 'response.created': {
+							// Skip re-emitting created event
+							break;
+						}
+
+						case 'response.in_progress': {
+							// Skip re-emitting in_progress event
+							break;
+						}
+
+						case 'response.output_item.added': {
+							if (event.item?.type === 'reasoning') {
+								const streamEvent: ResponseStreamEvent = {
+									type: 'thinking',
+									content: '',
+								};
+								yield streamEvent;
+							}
+							break;
+						}
+
+						case 'response.reasoning_summary_text.delta': {
+							const streamEvent: ResponseStreamEvent = {
+								type: 'thinking',
+								delta: event.delta,
+							};
+							yield streamEvent;
+							break;
+						}
+
+						case 'response.output_text.delta': {
+							const streamEvent: ResponseStreamEvent = {
+								type: 'output',
+								delta: event.delta,
+							};
+							yield streamEvent;
+							break;
+						}
+
+						case 'response.completed': {
+							yield {
+								type: 'complete',
+							};
+							break;
+						}
+
+						default: {
+							// Handle other events as needed
+							break;
+						}
 					}
 				}
 			}
