@@ -199,9 +199,9 @@ export class OpenAiClient {
 			};
 			const webSearchTool: Tool = {type: 'web_search_preview'};
 			const tools: Tool[] = [webSearchTool];
-			// if (model !== 'o3-deep-research') {
-			tools.push(fetchUrlsTool);
-			// }
+			if (model !== 'o3-deep-research') {
+				tools.push(fetchUrlsTool);
+			}
 			const stream = await this.client.responses.create({
 				model,
 				input: messages,
@@ -423,7 +423,6 @@ export class OpenAiClient {
 				}
 			}
 		} catch (error) {
-			console.error('OpenAI streaming error:', error);
 			const streamEvent: ResponseStreamEvent = {
 				type: 'error',
 				content: error instanceof Error ? error.message : 'Unknown error',
@@ -447,36 +446,38 @@ export class OpenAiClient {
 						content: msg.content,
 					}) satisfies EasyInputMessage,
 			);
-
+			const webSearchTool: Tool = {type: 'web_search_preview'};
+			const fetchUrlsTool: Tool = {
+				type: 'function',
+				name: 'fetch_urls',
+				description:
+					'Fetch content from one or more URLs and return them in markdown format',
+				parameters: {
+					type: 'object',
+					properties: {
+						urls: {
+							type: 'array',
+							items: {
+								type: 'string',
+							},
+							description: 'Array of URLs to fetch content from',
+						},
+					},
+					required: ['urls'],
+					additionalProperties: false,
+				},
+				strict: true,
+			};
+			const tools: Tool[] = [webSearchTool];
+			if (model !== 'o3-deep-research') {
+				tools.push(fetchUrlsTool);
+			}
 			const stream = await this.client.responses.create({
 				model,
 				input: messages,
 				stream: true,
 				reasoning: {summary: 'detailed'},
-				tools: [
-					{type: 'web_search_preview'},
-					{
-						type: 'function',
-						name: 'fetch_urls',
-						description:
-							'Fetch content from one or more URLs and return them in markdown format',
-						parameters: {
-							type: 'object',
-							properties: {
-								urls: {
-									type: 'array',
-									items: {
-										type: 'string',
-									},
-									description: 'Array of URLs to fetch content from',
-								},
-							},
-							required: ['urls'],
-							additionalProperties: false,
-						},
-						strict: true,
-					},
-				],
+				tools,
 			});
 
 			for await (const event of stream) {
@@ -517,7 +518,6 @@ export class OpenAiClient {
 				}
 			}
 		} catch (error) {
-			console.error('OpenAI streaming error:', error);
 			const streamEvent: ResponseStreamEvent = {
 				type: 'error',
 				content: error instanceof Error ? error.message : 'Unknown error',

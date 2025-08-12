@@ -469,17 +469,21 @@ export class SessionLogger {
 			}
 
 			// Add current in-progress interaction if any
-			if (
-				this.currentStatus.state !== 'complete' &&
-				this.currentStatus.currentInteraction >
-					this.cumulativeMetrics.completedInteractions
-			) {
+			const interactionLogged = this.cumulativeMetrics.interactions.find(
+				i =>
+					i.number ===
+					this.formatFileNumber(this.currentStatus.currentInteraction),
+			);
+
+			if (!interactionLogged) {
 				const currentNum = this.formatFileNumber(
 					this.currentStatus.currentInteraction,
 				);
 				const currentElapsed =
 					Date.now() - (this.currentMetrics?.timestamp.getTime() || Date.now());
-				content += `| ${currentNum} | 🔄 In Progress | ${this.formatDuration(currentElapsed)} | ${this.currentMetrics?.model} | ... | ... | ... | ... | ... |\n`;
+				content += `| ${currentNum} | 🔄 In Progress | ${this.formatDuration(
+					currentElapsed,
+				)} | ${this.currentMetrics?.model || ''} | ... | ... | ... | ... | ... |\n`;
 			}
 		}
 
@@ -515,6 +519,10 @@ export class SessionLogger {
 		return this.interactionCount;
 	}
 
+	getCurrentState(): SessionStatus['state'] {
+		return this.currentStatus.state;
+	}
+
 	async logError(
 		error: Error,
 		interactionNumber?: number,
@@ -542,6 +550,33 @@ export class SessionLogger {
 		// Also update the main stats file
 		this.currentStatus.state = 'error';
 		this.currentStatus.progress = `Error logged to ${logFilename}`;
+
+		// Add a FAILED entry to the interactions summary, if not already present for this interaction
+		const interactionAlreadyLogged = this.cumulativeMetrics.interactions.some(
+			i => i.number === this.formatFileNumber(interactionNum),
+		);
+
+		if (!interactionAlreadyLogged && this.currentMetrics) {
+			const formatCurrency = new Intl.NumberFormat('en-US', {
+				style: 'currency',
+				currency: 'USD',
+				minimumFractionDigits: 6,
+			}).format;
+			this.cumulativeMetrics.interactions.push({
+				number: this.formatFileNumber(this.interactionCount),
+				status: '❌ Failed',
+				duration: this.formatDuration(
+					Date.now() - this.currentMetrics.timestamp.getTime(),
+				),
+				model: this.currentMetrics.model,
+				input: this.currentMetrics.usage?.inputTokens || 0,
+				output: this.currentMetrics.usage?.outputTokens || 0,
+				cached: this.currentMetrics.usage?.cachedTokens || 0,
+				urls: this.currentMetrics.urlFetches?.length || 0,
+				cost: formatCurrency(this.currentMetrics.usage?.cost?.total || 0),
+			});
+		}
+
 		await this.updateGlobalStats();
 	}
 

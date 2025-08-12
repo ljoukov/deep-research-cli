@@ -446,9 +446,11 @@ export default function App({args, apiKey}: AppProps) {
 			}
 
 			// Log final metrics for the last interaction
-			const duration = Date.now() - startTime;
-			await logger.updateMetrics(usage, duration);
-			await logger.logInteractionStats();
+			if (logger.getCurrentState() !== 'error') {
+				const duration = Date.now() - startTime;
+				await logger.updateMetrics(usage, duration);
+				await logger.logInteractionStats();
+			}
 
 			// Create session log for non-interactive sessions
 			if (args.request || args.requestFile) {
