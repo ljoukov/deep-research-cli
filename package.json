@@ -14,6 +14,7 @@
 		"start": "bun run source/cli.tsx",
 		"dev": "bun run source/cli.tsx",
 		"build": "tsc",
+		"format": "prettier --write .",
 		"test": "prettier --check . && xo --ignore third_party && vitest run",
 		"test:lint": "prettier --check . && xo --ignore third_party",
 		"test:unit": "vitest run",
