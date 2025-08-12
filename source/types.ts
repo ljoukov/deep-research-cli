@@ -11,6 +11,15 @@ export type ChatMessage = {
 	timestamp: Date;
 };
 
+export interface Usage {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	cached_tokens?: number;
+	thinking_tokens?: number;
+	cost?: number;
+}
+
 export type ResponseStreamEvent = {
 	type:
 		| 'created'
@@ -27,16 +36,7 @@ export type ResponseStreamEvent = {
 	toolStatus?: string;
 	responseId?: string;
 	model?: string;
-	usage?: {
-		completion_tokens: number;
-		prompt_tokens: number;
-		total_tokens: number;
-		cost?: {
-			prompt: number;
-			completion: number;
-			total: number;
-		};
-	};
+	usage?: Usage;
 	urlMetrics?: Array<{
 		url: string;
 		startTime: number;
@@ -71,16 +71,7 @@ export type StreamingState =
 export interface StreamMetrics {
 	startTime: number;
 	endTime?: number;
-	usage?: {
-		completion_tokens: number;
-		prompt_tokens: number;
-		total_tokens: number;
-		cost?: {
-			prompt: number;
-			completion: number;
-			total: number;
-		};
-	};
+	usage?: Usage;
 	urlFetches?: Array<{
 		url: string;
 		startTime: number;

@@ -9,7 +9,59 @@ import type {
 	ChatMessage,
 	StreamMetrics,
 	UrlFetchResult,
+	Usage,
 } from '../types.js';
+
+const modelPricing = {
+	'gpt-5': {
+		input: 1.25 / 1_000_000,
+		output: 10 / 1_000_000,
+	},
+	'gpt-5-mini': {
+		input: 0.25 / 1_000_000,
+		output: 2 / 1_000_000,
+	},
+	o3: {
+		input: 0.5 / 1_000_000,
+		output: 1.5 / 1_000_000,
+	},
+	'o3-deep-research': {
+		input: 1 / 1_000_000,
+		output: 3 / 1_000_000,
+	},
+	'o3-pro': {
+		input: 2 / 1_000_000,
+		output: 6 / 1_000_000,
+	},
+};
+
+function calculateUsage(
+	model: string,
+	usage: ResponseUsage | null | undefined,
+): Usage | undefined {
+	if (!usage) {
+		return undefined;
+	}
+
+	const modelKey = model as keyof typeof modelPricing;
+	const prices = modelPricing[modelKey];
+	let cost: number | undefined;
+
+	if (prices) {
+		const inputCost = usage.input_tokens * prices.input;
+		const outputCost = usage.output_tokens * prices.output;
+		cost = inputCost + outputCost;
+	}
+
+	return {
+		prompt_tokens: usage.input_tokens,
+		completion_tokens: usage.output_tokens,
+		total_tokens: usage.total_tokens,
+		cached_tokens: usage.input_tokens_details?.cached_tokens || 0,
+		thinking_tokens: usage.output_tokens_details?.reasoning_tokens || 0,
+		cost,
+	};
+}
 
 export class OpenAiClient {
 	private readonly client: OpenAI;
@@ -331,11 +383,12 @@ export class OpenAiClient {
 						// Don't yield complete yet if we need to continue with tool results
 						if (!needsContinuation) {
 							metrics.endTime = Date.now();
-							metrics.usage = responseUsage || undefined;
+							const finalUsage = calculateUsage(model, responseUsage);
+							metrics.usage = finalUsage;
 
 							yield {
 								type: 'complete',
-								usage: responseUsage || undefined,
+								usage: finalUsage,
 							};
 						}
 						break;
@@ -360,7 +413,7 @@ export class OpenAiClient {
 						requestedUrls,
 						urlMetrics: metrics.urlFetches,
 						urlFetchResults: toolResult.results,
-						usage: responseUsage || undefined,
+						usage: calculateUsage(model, responseUsage),
 					};
 					yield continuationEvent;
 				}
@@ -451,7 +504,10 @@ export class OpenAiClient {
 						if (event.response?.usage) {
 							responseUsage = event.response.usage as ResponseUsage;
 						}
-						yield {type: 'complete', usage: responseUsage || undefined};
+						yield {
+							type: 'complete',
+							usage: calculateUsage(model, responseUsage),
+						};
 						break;
 					}
 				}

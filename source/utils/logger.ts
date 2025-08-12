@@ -1,7 +1,6 @@
 import {promises as fs} from 'node:fs';
 import * as path from 'node:path';
-import type {ResponseUsage} from 'openai/resources/responses/responses.js';
-import {modelPricing} from './pricing.js';
+import type {Usage} from '../types.js';
 
 export interface InteractionMetrics {
 	timestamp: Date;
@@ -62,6 +61,7 @@ export interface CumulativeMetrics {
 		output: number;
 		cached: number;
 		urls: number;
+		cost: string;
 	}>;
 }
 
@@ -279,30 +279,31 @@ export class SessionLogger {
 		await fs.writeFile(filepath, combinedContent, 'utf8');
 	}
 
-	async updateMetrics(
-		usage: ResponseUsage | null,
-		duration: number,
-	): Promise<void> {
+	async updateMetrics(usage: Usage | null, duration: number): Promise<void> {
 		if (this.currentMetrics) {
 			this.currentMetrics.duration = duration;
 
 			if (usage) {
-				const thinkingTokens =
-					usage.output_tokens_details?.reasoning_tokens || 0;
 				this.currentMetrics.usage = {
-					inputTokens: usage.input_tokens,
-					outputTokens: usage.output_tokens,
-					cachedTokens: usage.input_tokens_details?.cached_tokens || 0,
-					thinkingTokens,
+					inputTokens: usage.prompt_tokens,
+					outputTokens: usage.completion_tokens,
+					cachedTokens: usage.cached_tokens || 0,
+					thinkingTokens: usage.thinking_tokens || 0,
 					totalTokens: usage.total_tokens,
+					cost: {
+						input: 0,
+						output: 0,
+						total: usage.cost || 0,
+					},
 				};
 
 				// Update cumulative
-				this.cumulativeMetrics.totalInputTokens += usage.input_tokens;
-				this.cumulativeMetrics.totalOutputTokens += usage.output_tokens;
-				this.cumulativeMetrics.totalCachedTokens +=
-					usage.input_tokens_details?.cached_tokens || 0;
-				this.cumulativeMetrics.totalThinkingTokens += thinkingTokens;
+				this.cumulativeMetrics.totalInputTokens += usage.prompt_tokens;
+				this.cumulativeMetrics.totalOutputTokens += usage.completion_tokens;
+				this.cumulativeMetrics.totalCachedTokens += usage.cached_tokens || 0;
+				this.cumulativeMetrics.totalThinkingTokens +=
+					usage.thinking_tokens || 0;
+				this.cumulativeMetrics.totalCost += usage.cost || 0;
 			}
 		}
 	}
@@ -319,21 +320,6 @@ export class SessionLogger {
 		content += `**Duration:** ${this.formatDuration(this.currentMetrics.duration)}\n\n`;
 
 		if (this.currentMetrics.usage) {
-			const model = this.currentMetrics.model as keyof typeof modelPricing;
-			const prices = modelPricing[model];
-			if (prices) {
-				const inputCost = this.currentMetrics.usage.inputTokens * prices.input;
-				const outputCost =
-					this.currentMetrics.usage.outputTokens * prices.output;
-				const totalCost = inputCost + outputCost;
-				this.currentMetrics.usage.cost = {
-					input: inputCost,
-					output: outputCost,
-					total: totalCost,
-				};
-				this.cumulativeMetrics.totalCost += totalCost;
-			}
-
 			content += '## Tokens\n';
 			content += `- Input: ${this.currentMetrics.usage.inputTokens}`;
 			if (this.currentMetrics.usage.cachedTokens > 0) {
@@ -346,17 +332,13 @@ export class SessionLogger {
 			}
 			content += `- Total: ${this.currentMetrics.usage.totalTokens}\n\n`;
 
-			if (this.currentMetrics.usage.cost) {
-				const formatCurrency = new Intl.NumberFormat('en-US', {
-					style: 'currency',
-					currency: 'USD',
-					minimumFractionDigits: 6,
-				}).format;
-				content += '## Cost\n';
-				content += `- Input: ${formatCurrency(this.currentMetrics.usage.cost.input)}\n`;
-				content += `- Output: ${formatCurrency(this.currentMetrics.usage.cost.output)}\n`;
-				content += `- Total: ${formatCurrency(this.currentMetrics.usage.cost.total)}\n\n`;
-			}
+			const formatCurrency = new Intl.NumberFormat('en-US', {
+				style: 'currency',
+				currency: 'USD',
+				minimumFractionDigits: 6,
+			}).format;
+			content += '## Cost\n';
+			content += `- Total: ${formatCurrency(this.currentMetrics.usage.cost?.total || 0)}\n\n`;
 		}
 
 		if (
@@ -376,6 +358,11 @@ export class SessionLogger {
 		await fs.writeFile(filepath, content, 'utf8');
 
 		// Add to interactions summary
+		const formatCurrency = new Intl.NumberFormat('en-US', {
+			style: 'currency',
+			currency: 'USD',
+			minimumFractionDigits: 6,
+		}).format;
 		this.cumulativeMetrics.interactions.push({
 			number: this.formatFileNumber(this.interactionCount),
 			status: '✅ Complete',
@@ -385,6 +372,7 @@ export class SessionLogger {
 			output: this.currentMetrics.usage?.outputTokens || 0,
 			cached: this.currentMetrics.usage?.cachedTokens || 0,
 			urls: this.currentMetrics.urlFetches?.length || 0,
+			cost: formatCurrency(this.currentMetrics.usage?.cost?.total || 0),
 		});
 
 		this.cumulativeMetrics.completedInteractions++;
@@ -471,12 +459,12 @@ export class SessionLogger {
 		if (this.cumulativeMetrics.interactions.length > 0) {
 			content += '## Interactions Summary\n';
 			content +=
-				'| # | Status | Duration | Model | Input | Output | Cached | URLs |\n';
+				'| # | Status | Duration | Model | Input | Output | Cached | URLs | Cost |\n';
 			content +=
-				'|---|--------|----------|-------|-------|--------|--------|------|\n';
+				'|---|--------|----------|-------|-------|--------|--------|------|------|\n';
 
 			for (const interaction of this.cumulativeMetrics.interactions) {
-				content += `| ${interaction.number} | ${interaction.status} | ${interaction.duration} | ${interaction.model} | ${interaction.input} | ${interaction.output} | ${interaction.cached} | ${interaction.urls} |\n`;
+				content += `| ${interaction.number} | ${interaction.status} | ${interaction.duration} | ${interaction.model} | ${interaction.input} | ${interaction.output} | ${interaction.cached} | ${interaction.urls} | ${interaction.cost} |\n`;
 			}
 
 			// Add current in-progress interaction if any
@@ -490,7 +478,7 @@ export class SessionLogger {
 				);
 				const currentElapsed =
 					Date.now() - (this.currentMetrics?.timestamp.getTime() || Date.now());
-				content += `| ${currentNum} | 🔄 In Progress | ${this.formatDuration(currentElapsed)} | ${this.currentMetrics?.model} | ... | ... | ... | ... |\n`;
+				content += `| ${currentNum} | 🔄 In Progress | ${this.formatDuration(currentElapsed)} | ${this.currentMetrics?.model} | ... | ... | ... | ... | ... |\n`;
 			}
 		}
 

@@ -320,12 +320,14 @@ export default function App({args, apiKey}: AppProps) {
 						if (event.delta) {
 							finalThinkingContent += event.delta;
 						}
+						await logger.updateGlobalStats();
 						break;
 					case 'output':
 						await logger.setCurrentState('responding');
 						if (event.delta) {
 							await logger.logResponse(event.delta, true);
 						}
+						await logger.updateGlobalStats();
 						break;
 					case 'tool_use':
 						if (
@@ -370,7 +372,7 @@ export default function App({args, apiKey}: AppProps) {
 							toolResponseLogged = true;
 						}
 
-						await logger.updateMetrics(event.usage, Date.now() - startTime);
+						await logger.updateMetrics(event.usage || null, Date.now() - startTime);
 						await logger.logInteractionStats();
 
 						// 2. Start a new interaction for the tool response
@@ -420,9 +422,10 @@ export default function App({args, apiKey}: AppProps) {
 						}
 						return; // Exit after handling continuation
 
-					case 'complete':
-						usage = event.usage;
-						break;
+				case 'complete':
+					// Store usage for final metrics
+					usage = event.usage;
+					break;
 				}
 
 				// Pass to UI handler
