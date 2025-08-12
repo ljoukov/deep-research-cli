@@ -28,23 +28,24 @@ export async function writeConversationToFile(
 ): Promise<void> {
 	try {
 		let content = `# Conversation History\n\n`;
-		
+
 		for (let i = 0; i < conversation.length; i++) {
 			const message = conversation[i];
 			if (!message) continue;
-			
+
 			const timestamp = message.timestamp.toLocaleString();
 			const separator = '---'.repeat(20);
 			const roleLabel = message.role === 'user' ? 'USER' : 'ASSISTANT';
 			const isLastMessage = i === conversation.length - 1;
-			const isIncomplete = isStreamingIncomplete && isLastMessage && message.role === 'assistant';
-			
+			const isIncomplete =
+				isStreamingIncomplete && isLastMessage && message.role === 'assistant';
+
 			content += `${separator}\n`;
 			content += `${roleLabel} [${timestamp}]${isIncomplete ? ' (STREAMING...)' : ''}\n`;
 			content += `${separator}\n\n`;
 			content += `${message.content}${isIncomplete ? '\n\n[Response still streaming...]' : ''}\n\n`;
 		}
-		
+
 		await fs.writeFile(path, content, 'utf-8');
 	} catch (error) {
 		throw new Error(`Failed to write conversation file ${path}: ${error}`);

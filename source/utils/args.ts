@@ -1,3 +1,4 @@
+import process from 'node:process';
 import yargs from 'yargs';
 import {hideBin} from 'yargs/helpers';
 import type {CliArgs} from '../types.js';

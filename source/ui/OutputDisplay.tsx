@@ -1,10 +1,10 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
-interface OutputDisplayProps {
+type OutputDisplayProps = {
 	content: string;
 	isStreaming?: boolean;
-}
+};
 
 export const OutputDisplay: React.FC<OutputDisplayProps> = ({
 	content,

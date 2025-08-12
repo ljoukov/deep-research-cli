@@ -14,7 +14,7 @@
 		"start": "bun run source/cli.tsx",
 		"dev": "bun run source/cli.tsx",
 		"build": "tsc",
-		"test": "prettier --check . && xo && ava"
+		"test": "prettier --check . && xo --ignore third_party && ava"
 	},
 	"files": [
 		"dist"
@@ -56,8 +56,14 @@
 		]
 	},
 	"xo": {
-		"extends": "xo-react",
 		"prettier": true,
+		"semicolon": true,
+		"space": false,
+		"ignores": [
+			"third_party",
+			"node_modules",
+			"dist"
+		],
 		"rules": {
 			"react/prop-types": "off"
 		}
