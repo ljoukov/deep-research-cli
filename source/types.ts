@@ -12,15 +12,19 @@ export interface ChatMessage {
 }
 
 export interface ResponseStreamEvent {
-	type: 'thinking' | 'output' | 'tool_use' | 'error' | 'complete';
+	type: 'created' | 'in_progress' | 'thinking' | 'output' | 'tool_use' | 'error' | 'complete';
 	content?: string;
 	delta?: string;
 	toolName?: string;
 	toolStatus?: string;
+	responseId?: string;
+	model?: string;
 }
 
 export type StreamingState =
 	| 'idle'
+	| 'created'
+	| 'in_progress'
 	| 'thinking'
 	| 'responding'
 	| 'error'

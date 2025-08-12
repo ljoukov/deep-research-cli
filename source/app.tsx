@@ -25,7 +25,7 @@ export default function App({args, apiKey}: AppProps) {
 	const openaiClient = new OpenAIClient(apiKey);
 
 	const processRequest = async (input: string) => {
-		setStreamingState('thinking');
+		setStreamingState('created');
 		setThinkingContent('');
 		setOutputContent('');
 		setError(null);
@@ -58,6 +58,12 @@ export default function App({args, apiKey}: AppProps) {
 
 			for await (const event of generator) {
 				switch (event.type) {
+					case 'created':
+						setStreamingState('created');
+						break;
+					case 'in_progress':
+						setStreamingState('in_progress');
+						break;
 					case 'thinking':
 						setStreamingState('thinking');
 						if (event.delta) {
@@ -183,6 +189,12 @@ export default function App({args, apiKey}: AppProps) {
 				</Box>
 			)}
 
+			{(streamingState === 'created' || streamingState === 'in_progress') && (
+				<Box marginBottom={1}>
+					<Spinner label={streamingState === 'created' ? 'Initializing response...' : 'Preparing to respond...'} />
+				</Box>
+			)}
+
 			{streamingState === 'thinking' && (
 				<ThinkingStream content={thinkingContent} isActive={true} />
 			)}
@@ -206,7 +218,11 @@ export default function App({args, apiKey}: AppProps) {
 				</Box>
 			)}
 
-			{isInteractive && streamingState !== 'thinking' && streamingState !== 'responding' && (
+			{isInteractive && 
+				streamingState !== 'created' && 
+				streamingState !== 'in_progress' && 
+				streamingState !== 'thinking' && 
+				streamingState !== 'responding' && (
 				<Box marginTop={1}>
 					<InputPrompt onSubmit={handleSubmit} />
 				</Box>
