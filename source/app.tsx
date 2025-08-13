@@ -334,8 +334,7 @@ export default function App({args, apiKey}: AppProps) {
 		const startTime = Date.now();
 
 		// Start logging
-		const model = args.model ?? 'o3-deep-research';
-		await logger.startInteraction(model);
+		await logger.startInteraction(args.model);
 		await logger.logRequest(input);
 		await logger.setCurrentState('starting');
 
@@ -346,7 +345,8 @@ export default function App({args, apiKey}: AppProps) {
 
 		try {
 			const generator = openaiClient.streamResponse(
-				model,
+				args.model,
+				args.reasoningEffort,
 				input,
 				conversationHistory,
 			);
@@ -434,13 +434,13 @@ export default function App({args, apiKey}: AppProps) {
 						}
 
 						await logger.updateMetrics(
-							event.usage || null,
+							event.usage || undefined,
 							Date.now() - startTime,
 						);
 						await logger.logInteractionStats();
 
 						// 2. Start a new interaction for the tool response
-						await logger.startInteraction(model);
+						await logger.startInteraction(args.model);
 						reasoningLogged = false; // Reset for the new interaction
 						await logger.setCurrentState('fetching_urls');
 
@@ -478,7 +478,8 @@ export default function App({args, apiKey}: AppProps) {
 						];
 
 						const continuationGenerator = openaiClient.continueStreamResponse(
-							model,
+							args.model,
+							args.reasoningEffort,
 							continuationHistory,
 						);
 						for await (const contEvent of continuationGenerator) {

@@ -47,11 +47,13 @@
 		"eslint-plugin-react": "^7.37.5",
 		"eslint-plugin-react-hooks": "^5.2.0",
 		"jsdom": "^26.1.0",
+		"modal": "^0.3.16",
 		"prettier": "^3.6.2",
 		"ts-node": "^10.9.2",
 		"typescript": "^5.9.2",
 		"vitest": "^3.2.4",
-		"xo": "^1.2.1"
+		"xo": "^1.2.1",
+		"zod": "^3.25.76"
 	},
 	"xo": {
 		"prettier": true,

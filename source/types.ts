@@ -1,5 +1,15 @@
+export type Model =
+	| 'o3'
+	| 'o3-deep-research'
+	| 'o3-pro'
+	| 'gpt-5'
+	| 'gpt-5-mini';
+
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
 export type CliArgs = {
-	model?: 'o3' | 'o3-deep-research' | 'o3-pro' | 'gpt-5' | 'gpt-5-mini';
+	model: Model;
+	reasoningEffort: ReasoningEffort;
 	request?: string;
 	requestFile?: string;
 	outputFile?: string;

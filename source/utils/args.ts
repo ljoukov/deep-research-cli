@@ -18,6 +18,12 @@ export function parseArgs(): CliArgs {
 			description: 'Model to use for the response',
 			default: 'gpt-5',
 		})
+		.option('reasoning-effort', {
+			type: 'string',
+			choices: ['minimal', 'low', 'medium', 'high'],
+			description: 'Reasoning effort',
+			default: 'high',
+		})
 		.option('request', {
 			type: 'string',
 			description: 'Direct request text',
@@ -36,6 +42,7 @@ export function parseArgs(): CliArgs {
 
 	return {
 		model: argv.model as CliArgs['model'],
+		reasoningEffort: argv['reasoning-effort'] as CliArgs['reasoningEffort'],
 		request: argv.request,
 		requestFile: argv['request-file'],
 		outputFile: argv['output-file'],

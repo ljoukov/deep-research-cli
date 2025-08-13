@@ -4,6 +4,7 @@ import type {
 	EasyInputMessage,
 	ResponseUsage,
 	Tool,
+	FunctionTool,
 } from 'openai/resources/responses/responses.js';
 import type {
 	ResponseStreamEvent,
@@ -11,7 +12,11 @@ import type {
 	StreamMetrics,
 	UrlFetchResult,
 	Usage,
+	Model,
+	ReasoningEffort,
 } from '../types.js';
+import {z} from 'zod';
+import {runModal} from './modal.js';
 
 const modelPricing = {
 	'gpt-5': {
@@ -70,7 +75,7 @@ function calculateUsage(
 	};
 }
 
-const fetchUrlsTool: Tool = {
+const fetchUrlsTool: FunctionTool = {
 	type: 'function',
 	name: 'fetch_urls',
 	description:
@@ -85,6 +90,25 @@ const fetchUrlsTool: Tool = {
 			},
 		},
 		required: ['urls'],
+		additionalProperties: false,
+	},
+	strict: true,
+};
+
+const runCodeTool: FunctionTool = {
+	type: 'function',
+	name: 'runCode',
+	description:
+		'Runs supplied Python3 code as a stand-alone script and returns its standard output',
+	parameters: {
+		type: 'object',
+		properties: {
+			code: {
+				type: 'string',
+				description: 'Python code to execute',
+			},
+		},
+		required: ['code'],
 		additionalProperties: false,
 	},
 	strict: true,
@@ -110,7 +134,7 @@ export class OpenAiClient {
 		const fetchPromises = urls.map(async url => {
 			const startTime = Date.now();
 			try {
-				const jinaUrl = `https://r.jina.ai/${url}`;
+				const jinaUrl = `http://127.0.0.1:3000/${url}`;
 				const response = await fetch(jinaUrl);
 				const endTime = Date.now();
 				const latency = endTime - startTime;
@@ -163,7 +187,8 @@ export class OpenAiClient {
 	}
 
 	async *streamResponse(
-		model: string,
+		model: Model,
+		reasoningEffort: ReasoningEffort,
 		input: string,
 		conversationHistory: ChatMessage[] = [],
 	): AsyncGenerator<ResponseStreamEvent> {
@@ -181,11 +206,12 @@ export class OpenAiClient {
 			} satisfies EasyInputMessage,
 		];
 
-		yield* this._streamHandler(model, messages, false);
+		yield* this._streamHandler(model, reasoningEffort, messages, false);
 	}
 
 	async *continueStreamResponse(
-		model: string,
+		model: Model,
+		reasoningEffort: ReasoningEffort,
 		conversation: ChatMessage[],
 	): AsyncGenerator<ResponseStreamEvent> {
 		const messages: ResponseInput = conversation.map(
@@ -196,11 +222,12 @@ export class OpenAiClient {
 				}) satisfies EasyInputMessage,
 		);
 
-		yield* this._streamHandler(model, messages, true);
+		yield* this._streamHandler(model, reasoningEffort, messages, true);
 	}
 
 	private async *_streamHandler(
-		model: string,
+		model: Model,
+		reasoningEffort: ReasoningEffort,
 		messages: ResponseInput,
 		isContinuation: boolean,
 	): AsyncGenerator<ResponseStreamEvent> {
@@ -220,18 +247,23 @@ export class OpenAiClient {
 			let needsContinuation = false;
 			let requestedUrls: string[] = [];
 
-			const tools: Tool[] = [webSearchTool];
+			const tools: Tool[] = [];
+			if (reasoningEffort !== 'minimal') {
+				tools.push(webSearchTool);
+			}
 			if (model !== 'o3-deep-research') {
 				tools.push(fetchUrlsTool);
+				tools.push(runCodeTool);
 			}
 
 			const stream = await this.client.responses.create({
 				model,
 				input: messages,
 				stream: true,
-				reasoning: {summary: 'detailed', effort: 'high'},
+				reasoning: {summary: 'detailed', effort: reasoningEffort},
 				tools,
 			});
+			let currentToolName: string | undefined;
 
 			for await (const event of stream) {
 				switch (event.type) {
@@ -257,7 +289,18 @@ export class OpenAiClient {
 						break;
 
 					case 'response.output_item.added':
-						if (event.item?.type === 'reasoning') {
+						if (event.item.type == 'function_call') {
+							currentToolName = event.item.name;
+							yield {
+								type: 'tool_use',
+								toolName: currentToolName,
+								toolStatus: 'processing',
+								delta: '',
+							};
+						} else {
+							currentToolName = undefined;
+						}
+						if (event.item.type == 'reasoning') {
 							yield {type: 'thinking', content: ''};
 						}
 						break;
@@ -281,72 +324,120 @@ export class OpenAiClient {
 						if (!isContinuation) {
 							yield {
 								type: 'tool_use',
-								toolName: 'fetch_urls',
+								toolName: currentToolName,
 								toolStatus: 'processing',
 								delta: event.delta,
 							};
 						}
 						break;
 
-					case 'response.function_call_arguments.done':
-						if (!isContinuation) {
-							yield {
-								type: 'tool_use',
-								toolName: 'fetch_urls',
-								toolStatus: 'executing',
-								content: 'Fetching URLs...',
-							};
+					case 'response.output_item.done':
+						if (event.item.type === 'function_call' && !isContinuation) {
+							const toolName = event.item.name;
+							switch (event.item.name) {
+								case fetchUrlsTool.name:
+									{
+										yield {
+											type: 'tool_use',
+											toolName,
+											toolStatus: 'executing',
+											content: 'Fetching URLs...',
+										};
+										try {
+											const args = JSON.parse(event.item.arguments || '{}');
+											const urls = args.urls || [];
+											const urlsPreview =
+												urls.join(', ').slice(0, 100) +
+												(urls.join(', ').length > 100 ? '...' : '');
+											yield {
+												type: 'tool_use',
+												toolName,
+												toolStatus: 'executing',
+												content: `Fetching ${urls.length} URL(s): ${urlsPreview}`,
+											};
 
-							try {
-								const args = JSON.parse(event.arguments || '{}');
-								const urls = args.urls || [];
-								const urlsPreview =
-									urls.join(', ').slice(0, 100) +
-									(urls.join(', ').length > 100 ? '...' : '');
-								yield {
-									type: 'tool_use',
-									toolName: 'fetch_urls',
-									toolStatus: 'executing',
-									content: `Fetching ${urls.length} URL(s): ${urlsPreview}`,
-								};
+											requestedUrls = urls;
+											const fetchResult = await this.fetchUrls(urls);
+											const urlMetrics = fetchResult.results.map(r => ({
+												url: r.url,
+												startTime: 0,
+												endTime: 0,
+												sizeBytes: r.metrics.sizeBytes,
+											}));
+											metrics.urlFetches = [
+												...(metrics.urlFetches || []),
+												...urlMetrics,
+											];
 
-								requestedUrls = urls;
-								const fetchResult = await this.fetchUrls(urls);
-								const urlMetrics = fetchResult.results.map(r => ({
-									url: r.url,
-									startTime: 0,
-									endTime: 0,
-									sizeBytes: r.metrics.sizeBytes,
-								}));
-								metrics.urlFetches = [
-									...(metrics.urlFetches || []),
-									...urlMetrics,
-								];
+											toolCallResults.push({
+												toolName,
+												args,
+												result: fetchResult.combinedContent,
+												results: fetchResult.results,
+											});
+											needsContinuation = true;
 
-								toolCallResults.push({
-									toolName: 'fetch_urls',
-									args,
-									result: fetchResult.combinedContent,
-									results: fetchResult.results,
-								});
-								needsContinuation = true;
+											yield {
+												type: 'tool_use',
+												toolName,
+												toolStatus: 'completed',
+												content: `Fetched ${urls.length} URL(s) - ${fetchResult.combinedContent.length} chars: ${urlsPreview}`,
+												urlMetrics,
+											};
+										} catch (error: unknown) {
+											yield {
+												type: 'tool_use',
+												toolName,
+												toolStatus: 'error',
+												content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+											};
+										}
+									}
+									break;
+								case runCodeTool.name:
+									{
+										yield {
+											type: 'tool_use',
+											toolName,
+											toolStatus: 'executing',
+											content: 'Running the code...',
+										};
+										const runCodeArgsSchema = z.object({
+											code: z.string(),
+										});
+										try {
+											const args = runCodeArgsSchema.parse(
+												JSON.parse(event.item.arguments || '{}'),
+											);
+											const codeResult = await runModal(args.code);
+											toolCallResults.push({
+												toolName,
+												args,
+												result: codeResult,
+												results: [],
+											});
+											needsContinuation = true;
 
-								yield {
-									type: 'tool_use',
-									toolName: 'fetch_urls',
-									toolStatus: 'completed',
-									content: `Fetched ${urls.length} URL(s) - ${fetchResult.combinedContent.length} chars: ${urlsPreview}`,
-									urlMetrics,
-								};
-							} catch (error: unknown) {
-								yield {
-									type: 'tool_use',
-									toolName: 'fetch_urls',
-									toolStatus: 'error',
-									content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-								};
+											yield {
+												type: 'tool_use',
+												toolName,
+												toolStatus: 'completed',
+												content: 'Executed the code',
+											};
+										} catch (err) {
+											yield {
+												type: 'tool_use',
+												toolName,
+												toolStatus: 'error',
+												content: `Invalid arguments for runCode: ${err instanceof Error ? err.message : 'Unknown error'}`,
+											};
+										}
+										//										console.dir({event});
+									}
+									break;
 							}
 						}
+
 						break;
 
 					case 'response.completed':

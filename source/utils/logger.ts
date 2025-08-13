@@ -1,7 +1,7 @@
 import {promises as fs} from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
-import type {Usage} from '../types.js';
+import type {Model, Usage} from '../types.js';
 
 export type InteractionMetrics = {
 	timestamp: Date;
@@ -104,7 +104,7 @@ export class SessionLogger {
 		};
 	}
 
-	public async startInteraction(model: string): Promise<void> {
+	public async startInteraction(model: Model): Promise<void> {
 		await this.ensureDirectory();
 		this.interactionCount++;
 		this.cumulativeMetrics.totalInteractions++;
