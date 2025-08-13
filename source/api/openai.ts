@@ -70,6 +70,28 @@ function calculateUsage(
 	};
 }
 
+const fetchUrlsTool: Tool = {
+	type: 'function',
+	name: 'fetch_urls',
+	description:
+		'Fetch content from one or more URLs and return them in markdown format. Prefer this tool if you need to obtain contents of 1 or more URLs. It works with regular websites and PDFs. Eg. wit ArXiv https://arxiv.org/pdf/YYMM.xxxxx would return the paper in markdown format',
+	parameters: {
+		type: 'object',
+		properties: {
+			urls: {
+				type: 'array',
+				items: {type: 'string'},
+				description: 'Array of URLs to fetch content from',
+			},
+		},
+		required: ['urls'],
+		additionalProperties: false,
+	},
+	strict: true,
+};
+
+const webSearchTool: Tool = {type: 'web_search_preview'};
+
 export class OpenAiClient {
 	private readonly client: OpenAI;
 
@@ -198,26 +220,6 @@ export class OpenAiClient {
 			let needsContinuation = false;
 			let requestedUrls: string[] = [];
 
-			const fetchUrlsTool: Tool = {
-				type: 'function',
-				name: 'fetch_urls',
-				description:
-					'Fetch content from one or more URLs and return them in markdown format',
-				parameters: {
-					type: 'object',
-					properties: {
-						urls: {
-							type: 'array',
-							items: {type: 'string'},
-							description: 'Array of URLs to fetch content from',
-						},
-					},
-					required: ['urls'],
-					additionalProperties: false,
-				},
-				strict: true,
-			};
-			const webSearchTool: Tool = {type: 'web_search_preview'};
 			const tools: Tool[] = [webSearchTool];
 			if (model !== 'o3-deep-research') {
 				tools.push(fetchUrlsTool);
