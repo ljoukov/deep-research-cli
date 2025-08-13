@@ -7,12 +7,15 @@ export type Model =
 
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
 
+export type Tool = 'web_search' | 'run_code' | 'fetch_urls' | 'all';
+
 export type CliArgs = {
 	model: Model;
 	reasoningEffort: ReasoningEffort;
 	request?: string;
 	requestFile?: string;
 	outputFile?: string;
+	tools: Tool[];
 };
 
 export type ChatMessage = {

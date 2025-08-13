@@ -36,6 +36,12 @@ export function parseArgs(): CliArgs {
 			type: 'string',
 			description: 'Path to save the output',
 		})
+		.option('tools', {
+			type: 'array',
+			choices: ['web_search', 'run_code', 'fetch_urls', 'all'],
+			description: 'Tools to use',
+			default: ['all'],
+		})
 		.conflicts('request', 'request-file')
 		.help()
 		.parseSync();
@@ -46,5 +52,6 @@ export function parseArgs(): CliArgs {
 		request: argv.request,
 		requestFile: argv['request-file'],
 		outputFile: argv['output-file'],
+		tools: argv.tools as CliArgs['tools'],
 	};
 }

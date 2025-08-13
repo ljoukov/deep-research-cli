@@ -14,6 +14,7 @@ import type {
 	Usage,
 	Model,
 	ReasoningEffort,
+	CliArgs,
 } from '../types.js';
 import {z} from 'zod';
 import {runModal} from './modal.js';
@@ -191,6 +192,7 @@ export class OpenAiClient {
 		reasoningEffort: ReasoningEffort,
 		input: string,
 		conversationHistory: ChatMessage[] = [],
+		tools: CliArgs['tools'],
 	): AsyncGenerator<ResponseStreamEvent> {
 		const messages: ResponseInput = [
 			...conversationHistory.map(
@@ -206,13 +208,14 @@ export class OpenAiClient {
 			} satisfies EasyInputMessage,
 		];
 
-		yield* this._streamHandler(model, reasoningEffort, messages, false);
+		yield* this._streamHandler(model, reasoningEffort, messages, false, tools);
 	}
 
 	async *continueStreamResponse(
 		model: Model,
 		reasoningEffort: ReasoningEffort,
 		conversation: ChatMessage[],
+		tools: CliArgs['tools'],
 	): AsyncGenerator<ResponseStreamEvent> {
 		const messages: ResponseInput = conversation.map(
 			msg =>
@@ -222,7 +225,7 @@ export class OpenAiClient {
 				}) satisfies EasyInputMessage,
 		);
 
-		yield* this._streamHandler(model, reasoningEffort, messages, true);
+		yield* this._streamHandler(model, reasoningEffort, messages, true, tools);
 	}
 
 	private async *_streamHandler(
@@ -230,6 +233,7 @@ export class OpenAiClient {
 		reasoningEffort: ReasoningEffort,
 		messages: ResponseInput,
 		isContinuation: boolean,
+		cliTools: CliArgs['tools'],
 	): AsyncGenerator<ResponseStreamEvent> {
 		const metrics: StreamMetrics = {
 			startTime: Date.now(),
@@ -247,13 +251,24 @@ export class OpenAiClient {
 			let needsContinuation = false;
 			let requestedUrls: string[] = [];
 
-			const tools: Tool[] = [];
-			if (reasoningEffort !== 'minimal') {
-				tools.push(webSearchTool);
+			const availableTools: Tool[] = [];
+			if (
+				reasoningEffort !== 'minimal' &&
+				(cliTools.includes('web_search') || cliTools.includes('all'))
+			) {
+				availableTools.push(webSearchTool);
 			}
-			if (model !== 'o3-deep-research') {
-				tools.push(fetchUrlsTool);
-				tools.push(runCodeTool);
+			if (
+				model !== 'o3-deep-research' &&
+				(cliTools.includes('fetch_urls') || cliTools.includes('all'))
+			) {
+				availableTools.push(fetchUrlsTool);
+			}
+			if (
+				model !== 'o3-deep-research' &&
+				(cliTools.includes('run_code') || cliTools.includes('all'))
+			) {
+				availableTools.push(runCodeTool);
 			}
 
 			const stream = await this.client.responses.create({
@@ -261,7 +276,7 @@ export class OpenAiClient {
 				input: messages,
 				stream: true,
 				reasoning: {summary: 'detailed', effort: reasoningEffort},
-				tools,
+				tools: availableTools,
 			});
 			let currentToolName: string | undefined;
 

@@ -349,6 +349,7 @@ export default function App({args, apiKey}: AppProps) {
 				args.reasoningEffort,
 				input,
 				conversationHistory,
+				args.tools,
 			);
 
 			const setFinalOutputContent = (content: string) => {
@@ -481,6 +482,7 @@ export default function App({args, apiKey}: AppProps) {
 							args.model,
 							args.reasoningEffort,
 							continuationHistory,
+							args.tools,
 						);
 						for await (const contEvent of continuationGenerator) {
 							await processEvent(contEvent); // Recursively process events
