@@ -7,6 +7,16 @@ import {SessionLogger} from './utils/logger.js';
 import chalk from 'chalk';
 
 const main = async () => {
+	console.log(
+		chalk.blue(`
+██████╗ ██╗  ██╗██╗   ██╗███████╗       █████╗ ██╗
+██╔══██╗██║  ██║╚██╗ ██╔╝██╔════╝      ██╔══██╗██║
+██████╔╝███████║ ╚████╔╝ ███████╗      ███████║██║
+██╔═══╝ ██╔══██║  ╚██╔╝  ╚════██║      ██╔══██║╚═╝
+██║     ██║  ██║   ██║   ███████║      ██║  ██║██╗
+╚═╝     ╚═╝  ╚═╝   ╚═╝   ╚══════╝      ╚═╝  ╚═╝╚═╝
+`),
+	);
 	const logger = new SessionLogger();
 	try {
 		// Parse arguments
