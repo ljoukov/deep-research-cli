@@ -37,7 +37,7 @@ export async function writeConversationToFile(
 			const message = conversation[i];
 			if (!message) continue;
 
-			const timestamp = message.timestamp.toLocaleString();
+			const timestamp = (message.timestamp ?? new Date()).toLocaleString();
 			const separator = '---'.repeat(20);
 			const roleLabel = message.role === 'user' ? 'USER' : 'ASSISTANT';
 			const isLastMessage = i === conversation.length - 1;
