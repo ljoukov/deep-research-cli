@@ -98,7 +98,7 @@ const fetchUrlsTool: FunctionTool = {
 
 const runCodeTool: FunctionTool = {
 	type: 'function',
-	name: 'runCode',
+	name: 'run_code',
 	description:
 		'Runs supplied Python3 code as a stand-alone script and returns its standard output',
 	parameters: {

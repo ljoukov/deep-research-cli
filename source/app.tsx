@@ -330,6 +330,7 @@ export default function App({args, apiKey}: AppProps) {
 		let finalThinkingContent = '';
 		let streamingSaveCounter = 0;
 		let requestedUrls: string[] = [];
+		let code = '';
 		let usage: Usage | undefined;
 		const startTime = Date.now();
 
@@ -392,7 +393,14 @@ export default function App({args, apiKey}: AppProps) {
 						await logger.updateGlobalStats();
 						break;
 					case 'tool_use':
-						if (
+						if (event.toolName === 'run_code' && event.content) {
+							try {
+								const parsed = JSON.parse(event.content);
+								code = parsed.code;
+							} catch (e) {
+								// ignore
+							}
+						} else if (
 							event.toolName === 'fetch_urls' &&
 							event.toolStatus === 'executing' &&
 							!toolCallInProgress
@@ -426,11 +434,24 @@ export default function App({args, apiKey}: AppProps) {
 						// This is the major change: handle the continuation
 						// 1. Finalize the first interaction (the tool request)
 						if (!toolResponseLogged) {
-							const urlsFromContinuation =
-								event.urlFetchResults?.map(r => r.url).filter(u => !!u) ?? [];
-							const urls =
-								requestedUrls.length > 0 ? requestedUrls : urlsFromContinuation;
-							await logger.logToolCall('fetch_urls', {urls});
+							if (event.toolName === 'run_code') {
+								await logger.logToolCall('run_code', {
+									code,
+								});
+							} else if (event.toolName === 'fetch_urls') {
+								const urlsFromContinuation =
+									event.urlFetchResults?.map(r => r.url).filter(u => !!u) ??
+									[];
+								const urls =
+									requestedUrls.length > 0
+										? requestedUrls
+										: urlsFromContinuation;
+								await logger.logToolCall('fetch_urls', {urls});
+							} else {
+								await logger.logToolCall(event.toolName!, {
+									tool: event.toolName,
+								});
+							}
 							toolResponseLogged = true;
 						}
 
